@@ -17,11 +17,12 @@ class GameHud extends StatelessWidget {
         children: [
           Positioned(top: 0, left: 0, right: 0, child: SafeArea(child: _TopBar(state: state))),
           Positioned(left: 0, right: 0, bottom: 0, child: SafeArea(child: _BottomBar(state: state))),
-          if (state.selected != null)
+          if (state.selected != null && !state.collecting)
             Positioned(left: 12, right: 12, bottom: 200, child: _InfoCard(state: state)),
-          if (state.toast != null)
+          if (state.collecting) Positioned(left: 16, right: 16, bottom: 200, child: _CollectBanner(state: state)),
+          if (state.toast != null && !state.tutorialActive)
             Positioned(
-              top: 140,
+              top: 215,
               left: 24,
               right: 24,
               child: SafeArea(
@@ -29,13 +30,14 @@ class GameHud extends StatelessWidget {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                     decoration: BoxDecoration(color: _panel, borderRadius: BorderRadius.circular(24)),
-                    child: Text(state.toast!, textAlign: TextAlign.center, style: const TextStyle(fontSize: 15)),
+                    child: Text(state.toast!, textAlign: TextAlign.center, style: const TextStyle(fontSize: 14)),
                   ),
                 ),
               ),
             ),
-          if (state.currentEvent != null) _EventOverlay(state: state),
-          if (state.report != null) _ReportOverlay(state: state),
+          if (state.currentEvent != null && !state.tutorialActive) _EventOverlay(state: state),
+          if (state.report != null && !state.tutorialActive) _ReportOverlay(state: state),
+          if (state.tutorialActive) _Tutorial(state: state),
         ],
       ),
     );
@@ -49,6 +51,7 @@ class _TopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final m = state.mission;
     return Container(
       margin: const EdgeInsets.all(8),
       padding: const EdgeInsets.all(10),
@@ -63,8 +66,11 @@ class _TopBar extends StatelessWidget {
               Text('${fmt(state.money)} د.ع',
                   style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
               const Spacer(),
-              Text('الشهر ${state.month} · اليوم ${state.day}',
-                  style: const TextStyle(color: Colors.white70)),
+              Text('ش${state.month} · يوم ${state.day}', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+              const SizedBox(width: 6),
+              _SmallButton(label: '×${state.speed}', onTap: state.toggleSpeed),
+              const SizedBox(width: 4),
+              _SmallButton(label: '؟', onTap: state.showHelp),
             ],
           ),
           const SizedBox(height: 8),
@@ -93,7 +99,7 @@ class _TopBar extends StatelessWidget {
                   icon: Icons.sentiment_satisfied_alt,
                   label: 'الرضا ${state.satisfaction.round()}%',
                   value: state.satisfaction / 100,
-                  color: const Color(0xFF66BB6A),
+                  color: state.satisfaction < 30 ? const Color(0xFFEF5350) : const Color(0xFF66BB6A),
                 ),
               ),
             ],
@@ -111,13 +117,58 @@ class _TopBar extends StatelessWidget {
                 color: state.overloaded ? const Color(0xFFE65100) : const Color(0xFF37474F),
               ),
               const SizedBox(width: 6),
-              _Chip(text: 'المشتركين ${state.subscribers}', color: const Color(0xFF37474F)),
+              _Chip(text: 'المشتركين ${state.subscribers}/10', color: const Color(0xFF37474F)),
             ],
+          ),
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0x33FFC107),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFFFC107)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.flag, size: 16, color: Color(0xFFFFC107)),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    m == null ? 'خلصت كل المهام! صرت أكبر صاحب مولدة بالزگاق 🏆' : 'المهمة: ${m.title}',
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (m != null)
+                  Text('🎁 ${fmt(m.reward)}', style: const TextStyle(fontSize: 11, color: Color(0xFFFFE082))),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
+}
+
+class _SmallButton extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  const _SmallButton({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: const Color(0xFF263042),
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ),
+      );
 }
 
 class _Meter extends StatelessWidget {
@@ -175,6 +226,7 @@ class _BottomBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = state;
+    final expensive = s.ampPrice > GameState.fairPrice + 3000;
     return Container(
       margin: const EdgeInsets.all(8),
       padding: const EdgeInsets.all(10),
@@ -186,11 +238,16 @@ class _BottomBar extends StatelessWidget {
             children: [
               const Text('سعر الأمبير:'),
               IconButton(onPressed: () => s.changePrice(-1000), icon: const Icon(Icons.remove_circle_outline)),
-              Text(fmt(s.ampPrice), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              Text(fmt(s.ampPrice),
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: expensive ? const Color(0xFFEF5350) : Colors.white,
+                  )),
               IconButton(onPressed: () => s.changePrice(1000), icon: const Icon(Icons.add_circle_outline)),
               const Spacer(),
-              Text('المعقول ${fmt(GameState.fairPrice)}',
-                  style: const TextStyle(fontSize: 11, color: Colors.white60)),
+              Text(expensive ? 'غالي! الناس تترك' : 'المعقول ${fmt(GameState.fairPrice)}',
+                  style: TextStyle(fontSize: 11, color: expensive ? const Color(0xFFEF5350) : Colors.white60)),
             ],
           ),
           const SizedBox(height: 6),
@@ -210,7 +267,7 @@ class _BottomBar extends StatelessWidget {
                   icon: Icons.local_gas_station,
                   label: 'كاز 100 لتر\n${fmt(s.fuelPrice * 100)}',
                   onTap: s.buyFuel,
-                  highlight: s.fuel < 40,
+                  highlight: s.fuel < 60,
                 ),
               ),
               const SizedBox(width: 6),
@@ -219,7 +276,7 @@ class _BottomBar extends StatelessWidget {
                   icon: Icons.build,
                   label: 'صيانة\n${fmt(GameState.maintenanceCost)}',
                   onTap: s.maintain,
-                  highlight: s.health < 35 && !s.broken,
+                  highlight: s.health < 40 && !s.broken,
                 ),
               ),
               const SizedBox(width: 6),
@@ -269,6 +326,37 @@ class _ActionButton extends StatelessWidget {
   }
 }
 
+// ---------------- جمع آخر الشهر ----------------
+class _CollectBanner extends StatelessWidget {
+  final GameState state;
+  const _CollectBanner({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _panel,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFFFC107), width: 2),
+      ),
+      child: Row(
+        children: [
+          const Text('🪙', style: TextStyle(fontSize: 26)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'آخر الشهر! اضغط على العملات فوك البيوت\nباقي ${fmt(state.pendingTotal)} د.ع',
+              style: const TextStyle(fontSize: 13),
+            ),
+          ),
+          FilledButton(onPressed: state.collectAll, child: const Text('اجمع الكل')),
+        ],
+      ),
+    );
+  }
+}
+
 // ---------------- بطاقة البيت أو المولدة ----------------
 class _InfoCard extends StatelessWidget {
   final GameState state;
@@ -290,7 +378,7 @@ class _InfoCard extends StatelessWidget {
               : state.fuel <= 0
                   ? 'خلص الكاز'
                   : state.overloaded
-                      ? 'شغالة · ضغط زايد!'
+                      ? 'شغالة · ضغط زايد! طوّرها أو قلّل المشتركين'
                       : 'شغالة';
       lines = [
         Text('الوضع: $status'),
@@ -299,10 +387,17 @@ class _InfoCard extends StatelessWidget {
     } else {
       final h = state.houses[sel];
       title = h.name;
+      final tooHigh = state.priceTooHigh(h);
       lines = [
         Text(h.subscribed ? 'مشترك بـ ${h.amps} أمبير' : 'مو مشترك (يحتاج ${h.amps} أمبير)'),
         if (h.rate < 1) Text('عنده خصم ${(100 - h.rate * 100).round()}%'),
+        Text(
+          tooHigh ? 'رأيه بسعرك: غالي عليه 😠' : 'رأيه بسعرك: مناسب 🙂',
+          style: TextStyle(color: tooHigh ? const Color(0xFFEF5350) : const Color(0xFF81C784)),
+        ),
         Text(h.debt > 0 ? 'عليه دين ${fmt(h.debt)} د.ع' : 'ما عليه دين'),
+        if (!h.subscribed && !tooHigh)
+          const Text('إذا الرضا فوك 60% ممكن يشترك', style: TextStyle(fontSize: 11, color: Colors.white60)),
       ];
       if (h.debt > 0) {
         action = FilledButton(onPressed: () => state.collectDebt(sel), child: const Text('طالبه بالدين'));
@@ -332,10 +427,11 @@ class _InfoCard extends StatelessWidget {
   }
 }
 
-// ---------------- بطاقة الحدث ----------------
+// ---------------- خلفية معتمة ----------------
 class _Dim extends StatelessWidget {
   final Widget child;
-  const _Dim({required this.child});
+  final Alignment align;
+  const _Dim({required this.child, this.align = Alignment.center});
 
   @override
   Widget build(BuildContext context) => Positioned.fill(
@@ -344,14 +440,77 @@ class _Dim extends StatelessWidget {
           onTap: () {},
           child: ColoredBox(
             color: const Color(0x99000000),
-            child: Center(
-              child: Padding(padding: const EdgeInsets.all(24), child: child),
+            child: Align(
+              alignment: align,
+              child: Padding(padding: const EdgeInsets.all(20), child: child),
             ),
           ),
         ),
       );
 }
 
+// ---------------- الشرح ----------------
+class _Tutorial extends StatelessWidget {
+  final GameState state;
+  const _Tutorial({required this.state});
+
+  static const _steps = [
+    ('هلا بيك يا صاحب المولدة! 👋', 'هذا زگاقك، والمولدة الخضرة بالنص هي رزقك. الأسلاك توصل للبيوت المشتركة، والشبابيك تضوي إذا وصلتهم الكهرباء.', Alignment.center),
+    ('الأرقام فوك ⬆️', 'فلوسك، والكاز، وحالة المولدة، ورضا الناس.\nإذا خلص الكاز تطفي المولدة والناس تزعل. وإذا الحالة نزلت، المولدة تعطل.', Alignment(0, 0.45)),
+    ('أزرارك تحت ⬇️', 'تشتري كاز، تسوي صيانة، تطوّر المولدة، وتحدد سعر الأمبير.\nانتبه: السعر الغالي يطلّع الناس، والرخيص ما يربّحك.', Alignment(0, -0.2)),
+    ('آخر كل شهر 🪙', 'كل يوم باللعبة 6 ثواني. آخر الشهر تطلع عملات فوك البيوت، اضغط عليها حتى تجمع فلوسك. وبعضهم راح يگول "باچر"!', Alignment.center),
+    ('يلا نبدي! 🎯', 'تابع المهمة بالشريط الأصفر فوك، وكل مهمة إلها جائزة.\nاضغط على أي بيت حتى تشوف تفاصيله، وزر ؟ يرجّعلك هذا الشرح.', Alignment.center),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final i = state.tutorialStep.clamp(0, _steps.length - 1);
+    final step = _steps[i];
+    final last = i == _steps.length - 1;
+    return _Dim(
+      align: step.$3,
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1B2333),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFFFC107), width: 2),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(step.$1,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: Color(0xFFFFC107))),
+            const SizedBox(height: 10),
+            Text(step.$2, textAlign: TextAlign.center, style: const TextStyle(fontSize: 15, height: 1.6)),
+            const SizedBox(height: 14),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                for (var k = 0; k < _steps.length; k++)
+                  Container(
+                    width: 8,
+                    height: 8,
+                    margin: const EdgeInsets.symmetric(horizontal: 3),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: k == i ? const Color(0xFFFFC107) : Colors.white24,
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            FilledButton(onPressed: state.nextTutorial, child: Text(last ? 'يلا نبدي' : 'التالي')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------- بطاقة الحدث ----------------
 class _EventOverlay extends StatelessWidget {
   final GameState state;
   const _EventOverlay({required this.state});
@@ -425,6 +584,11 @@ class _ReportOverlay extends StatelessWidget {
             if (r.late.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text('گالوا "باچر": ${r.late.join('، ')}', style: const TextStyle(color: Colors.white70)),
+            ],
+            if (r.left.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text('تركوا الاشتراك: ${r.left.toSet().join('، ')}', style: const TextStyle(color: Color(0xFFEF9A9A))),
+              const Text('السبب غالباً السعر الغالي أو الانقطاع', style: TextStyle(fontSize: 11, color: Colors.white54)),
             ],
             const SizedBox(height: 16),
             FilledButton(onPressed: state.closeReport, child: const Text('يلا الشهر الجاي')),
