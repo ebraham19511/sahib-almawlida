@@ -433,7 +433,7 @@ class GameState extends ChangeNotifier {
     } catch (_) {}
   }
 
-  static Future<GameState> load() async {
+  static Future<GameState> loadSaved() async {
     final s = GameState();
     try {
       final p = await SharedPreferences.getInstance();
