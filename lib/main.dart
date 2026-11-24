@@ -9,7 +9,7 @@ import 'ui/hud.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-  final state = await GameState.load();
+  final state = await GameState.loadSaved();
   runApp(GeneratorApp(gameState: state));
 }
 
