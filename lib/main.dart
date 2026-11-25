@@ -2,27 +2,31 @@ import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'game/generator_game.dart';
-import 'game/state.dart';
-import 'ui/hud.dart';
+import 'arcade/game.dart';
+import 'arcade/ui.dart';
+import 'arcade/world.dart';
+import 'game/sound.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-  final state = await GameState.loadSaved();
-  runApp(GeneratorApp(gameState: state));
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  final wd = ArcadeWorld();
+  wd.onSfx = (n) => Sfx.play(n);
+  await wd.loadProgress();
+  runApp(ArcadeApp(wd: wd));
 }
 
-class GeneratorApp extends StatefulWidget {
-  final GameState gameState;
-  const GeneratorApp({super.key, required this.gameState});
+class ArcadeApp extends StatefulWidget {
+  final ArcadeWorld wd;
+  const ArcadeApp({super.key, required this.wd});
 
   @override
-  State<GeneratorApp> createState() => _GeneratorAppState();
+  State<ArcadeApp> createState() => _ArcadeAppState();
 }
 
-class _GeneratorAppState extends State<GeneratorApp> with WidgetsBindingObserver {
-  late final GeneratorGame game = GeneratorGame(widget.gameState);
+class _ArcadeAppState extends State<ArcadeApp> with WidgetsBindingObserver {
+  late final ArcadeGame game = ArcadeGame(widget.wd);
 
   @override
   void initState() {
@@ -38,9 +42,7 @@ class _GeneratorAppState extends State<GeneratorApp> with WidgetsBindingObserver
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState s) {
-    if (s == AppLifecycleState.paused || s == AppLifecycleState.inactive) {
-      widget.gameState.save();
-    }
+    if (s != AppLifecycleState.resumed) widget.wd.pause();
   }
 
   @override
@@ -48,17 +50,13 @@ class _GeneratorAppState extends State<GeneratorApp> with WidgetsBindingObserver
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'صاحب المولدة',
-      theme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.dark,
-        colorSchemeSeed: const Color(0xFFE8892B),
-      ),
+      theme: ThemeData(useMaterial3: true, brightness: Brightness.dark, colorSchemeSeed: const Color(0xFFFFC107)),
       builder: (ctx, child) => Directionality(textDirection: TextDirection.rtl, child: child!),
       home: Scaffold(
         body: Stack(
           children: [
             GameWidget(game: game),
-            GameHud(state: widget.gameState),
+            ArcadeUI(wd: widget.wd),
           ],
         ),
       ),
