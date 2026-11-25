@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 
 import '../game/state.dart';
@@ -17,7 +20,7 @@ class GameHud extends StatelessWidget {
         children: [
           Positioned(top: 0, left: 0, right: 0, child: SafeArea(child: _TopBar(state: state))),
           Positioned(left: 0, right: 0, bottom: 0, child: SafeArea(child: _BottomBar(state: state))),
-          if (state.selected != null && !state.collecting)
+          if (state.selected != null && !state.collecting && state.alarm <= 0)
             Positioned(left: 12, right: 12, bottom: 200, child: _InfoCard(state: state)),
           if (state.collecting) Positioned(left: 16, right: 16, bottom: 200, child: _CollectBanner(state: state)),
           if (state.toast != null && !state.tutorialActive)
@@ -35,7 +38,10 @@ class GameHud extends StatelessWidget {
                 ),
               ),
             ),
+          if (state.alarm > 0 && !state.overlayOpen)
+            Positioned(left: 16, right: 16, bottom: 200, child: _AlarmBanner(state: state)),
           if (state.currentEvent != null && !state.tutorialActive) _EventOverlay(state: state),
+          if (state.fixing && !state.tutorialActive) _FixGame(key: const ValueKey('fix'), state: state),
           if (state.report != null && !state.tutorialActive) _ReportOverlay(state: state),
           if (state.tutorialActive) _Tutorial(state: state),
         ],
@@ -326,6 +332,190 @@ class _ActionButton extends StatelessWidget {
   }
 }
 
+// ---------------- إنذار انقطاع الوطنية ----------------
+class _AlarmBanner extends StatelessWidget {
+  final GameState state;
+  const _AlarmBanner({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xEEB71C1C),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white, width: 2),
+      ),
+      child: Row(
+        children: [
+          Text('${state.alarm.ceil()}', style: const TextStyle(fontSize: 30, fontWeight: FontWeight.bold)),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Text('طفت الوطنية! شغّل المولدة قبل ما الناس تزعل',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.white, foregroundColor: const Color(0xFFB71C1C)),
+            onPressed: state.toggleRunning,
+            child: const Text('شغّل ⚡'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------- لعبة التصليح ----------------
+class _FixGame extends StatefulWidget {
+  final GameState state;
+  const _FixGame({super.key, required this.state});
+
+  @override
+  State<_FixGame> createState() => _FixGameState();
+}
+
+class _FixGameState extends State<_FixGame> {
+  static const _parts = [
+    (Icons.settings, 'الدينمو'),
+    (Icons.bolt, 'الفيوز'),
+    (Icons.oil_barrel, 'الزيت'),
+    (Icons.cable, 'الواير'),
+    (Icons.air, 'الفلتر'),
+    (Icons.filter_alt, 'البلف'),
+  ];
+  static const _need = 6;
+  static const _seconds = 9.0;
+
+  final _rnd = Random();
+  Timer? _timer;
+  double _left = _seconds;
+  double _sinceSwitch = 0;
+  int _target = 0;
+  int _hits = 0;
+  int? _wrong;
+  bool _done = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _target = _rnd.nextInt(_parts.length);
+    _timer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      if (!mounted || _done) return;
+      setState(() {
+        _left -= 0.1;
+        _sinceSwitch += 0.1;
+        if (_sinceSwitch > 0.9) _next();
+        if (_left <= 0) _finish(false);
+      });
+    });
+  }
+
+  void _next() {
+    var t = _rnd.nextInt(_parts.length);
+    if (t == _target) t = (t + 1) % _parts.length;
+    _target = t;
+    _sinceSwitch = 0;
+    _wrong = null;
+  }
+
+  void _tap(int i) {
+    if (_done) return;
+    setState(() {
+      if (i == _target) {
+        _hits++;
+        if (_hits >= _need) {
+          _finish(true);
+        } else {
+          _next();
+        }
+      } else {
+        _wrong = i;
+        _left -= 0.5;
+      }
+    });
+  }
+
+  void _finish(bool ok) {
+    if (_done) return;
+    _done = true;
+    _timer?.cancel();
+    Future.delayed(const Duration(milliseconds: 600), () => widget.state.fixResult(ok));
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _Dim(
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1B2333),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: _accent, width: 2),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text('صلّح المولدة! 🔧',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: _accent)),
+            const SizedBox(height: 6),
+            Text(
+              _done ? (_hits >= _need ? 'اشتغلت! 🎉' : 'خلص الوكت 😓') : 'اضغط على القطعة الحمرة بسرعة ($_hits/$_need)',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: (_left / _seconds).clamp(0.0, 1.0),
+                minHeight: 8,
+                color: _left < 3 ? const Color(0xFFEF5350) : const Color(0xFF66BB6A),
+                backgroundColor: Colors.white12,
+              ),
+            ),
+            const SizedBox(height: 14),
+            GridView.count(
+              crossAxisCount: 3,
+              shrinkWrap: true,
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
+              physics: const NeverScrollableScrollPhysics(),
+              children: [
+                for (var i = 0; i < _parts.length; i++)
+                  Material(
+                    color: i == _target && !_done
+                        ? const Color(0xFFD32F2F)
+                        : (i == _wrong ? const Color(0xFF5D4037) : const Color(0xFF263042)),
+                    borderRadius: BorderRadius.circular(14),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: () => _tap(i),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(_parts[i].$1, size: 30),
+                          const SizedBox(height: 4),
+                          Text(_parts[i].$2, style: const TextStyle(fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ---------------- جمع آخر الشهر ----------------
 class _CollectBanner extends StatelessWidget {
   final GameState state;
@@ -346,7 +536,7 @@ class _CollectBanner extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'آخر الشهر! اضغط على العملات فوك البيوت\nباقي ${fmt(state.pendingTotal)} د.ع',
+              'آخر الشهر! اضغط العملات بسرعة قبل ما يهربون\nباقي ${fmt(state.pendingTotal)} د.ع',
               style: const TextStyle(fontSize: 13),
             ),
           ),
@@ -458,7 +648,8 @@ class _Tutorial extends StatelessWidget {
     ('هلا بيك يا صاحب المولدة! 👋', 'هذا زگاقك، والمولدة الخضرة بالنص هي رزقك. الأسلاك توصل للبيوت المشتركة، والشبابيك تضوي إذا وصلتهم الكهرباء.', Alignment.center),
     ('الأرقام فوك ⬆️', 'فلوسك، والكاز، وحالة المولدة، ورضا الناس.\nإذا خلص الكاز تطفي المولدة والناس تزعل. وإذا الحالة نزلت، المولدة تعطل.', Alignment(0, 0.45)),
     ('أزرارك تحت ⬇️', 'تشتري كاز، تسوي صيانة، تطوّر المولدة، وتحدد سعر الأمبير.\nانتبه: السعر الغالي يطلّع الناس، والرخيص ما يربّحك.', Alignment(0, -0.2)),
-    ('آخر كل شهر 🪙', 'كل يوم باللعبة 6 ثواني. آخر الشهر تطلع عملات فوك البيوت، اضغط عليها حتى تجمع فلوسك. وبعضهم راح يگول "باچر"!', Alignment.center),
+    ('خليك منتبه! ⚡', 'لما تنقطع الوطنية عندك 5 ثواني تشغّل المولدة.\nإذا شفت حرامي 🦹 على عمود اضغط عليه بسرعة.\nوإذا طلع ⚡ أخضر فوك بيت، اضغطه حتى تبيعه أمبيرات زيادة.', Alignment.center),
+    ('آخر كل شهر 🪙', 'تطلع عملات فوك البيوت، اضغطها بسرعة قبل ما يخلص عدادها ويهرب صاحبها!\nوإذا عطلت المولدة تگدر تصلّحها بإيدك ببلاش.', Alignment.center),
     ('يلا نبدي! 🎯', 'تابع المهمة بالشريط الأصفر فوك، وكل مهمة إلها جائزة.\nاضغط على أي بيت حتى تشوف تفاصيله، وزر ؟ يرجّعلك هذا الشرح.', Alignment.center),
   ];
 
