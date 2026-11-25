@@ -87,6 +87,15 @@ class Mission {
   const Mission(this.title, this.reward, this.done);
 }
 
+/// رقم أو كلمة تطير فوك مكان بالمحلة
+class Floater {
+  final double gx, gy;
+  final String text;
+  final int color;
+  double t = 0;
+  Floater(this.gx, this.gy, this.text, this.color);
+}
+
 enum QuestType { delivery, fixWire, visit }
 
 /// واجب صغير بالمحلة
@@ -124,7 +133,8 @@ class GameState extends ChangeNotifier {
   static const String _key = 'save_v4';
   static const double coinSeconds = 25;
   static const double alarmSeconds = 5;
-  static const double thiefSeconds = 10;
+  static const double thiefSeconds = 16;
+  static const Offset kidsPos = Offset(5.6, 1.5);
   static const double walkSpeed = 2.4; // مربع بالثانية
 
   // ---------- خريطة المحلة (إحداثيات الشبكة) ----------
@@ -195,6 +205,26 @@ class GameState extends ChangeNotifier {
   int teas = 0;
   int convinced = 0;
   int questsDone = 0;
+
+  // الحركة والمغامرة
+  double stamina = 1;
+  bool sprinting = false;
+  int xp = 0;
+  int level = 1;
+  double celebrate = 0; // وكت الاحتفال (ألوان تنزل)
+  final List<Floater> floaters = [];
+  void Function(String name)? onSfx;
+  bool pumping = false; // لعبة تعبئة الكاز
+  bool football = false; // ضربات جزاء ويه الجهال
+  int lastFootball = -1;
+  double thiefX = 0, thiefY = 0;
+  bool thiefRunning = false;
+  bool questsOpen = false;
+
+  void toggleQuests() {
+    questsOpen = !questsOpen;
+    notifyListeners();
+  }
   final List<Quest> quests = [];
   int aiCount = 0;
   int aiStamp = -1;
@@ -244,7 +274,8 @@ class GameState extends ChangeNotifier {
 
   // ---------- قراءات ----------
   bool get tutorialActive => tutorialStep < tutorialCount;
-  bool get overlayOpen => currentEvent != null || report != null || fixing || visiting != null || tutorialActive;
+  bool get overlayOpen =>
+      currentEvent != null || report != null || fixing || pumping || football || visiting != null || tutorialActive;
   bool get paused => overlayOpen || collecting;
   bool get generating => running && !broken && fuel > 0;
   bool houseLit(House h) => nationalOn || (h.subscribed && generating && !h.wireCut);
@@ -289,6 +320,31 @@ class GameState extends ChangeNotifier {
     return null;
   }
   bool get nearGenerator => _dist(genPos) < 1.2;
+  bool get nearKids => _dist(kidsPos) < 1.4 && lastFootball != _stamp;
+  bool get footballReady => lastFootball != _stamp;
+  int get xpNext => level * 150;
+
+  void sfx(String name) => onSfx?.call(name);
+
+  void float(double gx, double gy, String text, [int color = 0xFFFFD54F]) {
+    floaters.add(Floater(gx, gy, text, color));
+  }
+
+  void addXp(int n) {
+    xp += n;
+    while (xp >= xpNext) {
+      xp -= xpNext;
+      level++;
+      celebrate = 2.5;
+      earn(level * 20000);
+      sfx('win');
+      showToast('⭐ مستوى $level! +${fmt(level * 20000)}');
+    }
+  }
+
+  void setSprint(bool v) {
+    sprinting = v;
+  }
 
   @override
   void notifyListeners() {
@@ -333,8 +389,9 @@ class GameState extends ChangeNotifier {
     final len = sqrt(gx * gx + gy * gy);
     if (len < 0.01) return;
     final mag = min(1.0, sqrt(moveX * moveX + moveY * moveY));
-    gx = gx / len * walkSpeed * mag * dt;
-    gy = gy / len * walkSpeed * mag * dt;
+    final sp = walkSpeed * (sprinting && stamina > 0.02 ? 1.7 : 1);
+    gx = gx / len * sp * mag * dt;
+    gy = gy / len * sp * mag * dt;
     if (moveX.abs() > 0.1) faceX = moveX.sign;
     if (!_blocked(px + gx, py + gy)) {
       px += gx;
@@ -362,6 +419,18 @@ class GameState extends ChangeNotifier {
         if (h.bubbleTime <= 0) h.bubble = null;
       }
     }
+    for (final f in floaters) {
+      f.t += dt;
+    }
+    floaters.removeWhere((f) => f.t > 1.6);
+    if (celebrate > 0) celebrate -= dt;
+    final before = (stamina * 10).floor();
+    if (sprinting && walking) {
+      stamina = max(0.0, stamina - dt * 0.35);
+    } else {
+      stamina = min(1.0, stamina + dt * 0.18);
+    }
+    if ((stamina * 10).floor() != before) notifyListeners();
     _saveTimer += dt;
     if (_saveTimer > 5) {
       _saveTimer = 0;
@@ -428,10 +497,18 @@ class GameState extends ChangeNotifier {
       }
     }
     if (thiefTime > 0) {
-      if (_dist(poles[thiefPole]) < 1.0) {
+      final d = sqrt((px - thiefX) * (px - thiefX) + (py - thiefY) * (py - thiefY));
+      if (d < 0.55) {
         catchThief();
         return;
       }
+      if (!thiefRunning && (d < 3 || thiefTime < thiefSeconds - 4)) {
+        thiefRunning = true;
+        sfx('whistle');
+        showToast('🦹 هرب! اركض وراه 🏃');
+        notifyListeners();
+      }
+      if (thiefRunning) _moveThief(dt);
       thiefTime -= dt;
       if (thiefTime <= 0) {
         thiefTime = 0;
@@ -450,6 +527,34 @@ class GameState extends ChangeNotifier {
           showToast('الحرامي بالواير وهرب! خسرت 40,000');
         }
         notifyListeners();
+      }
+    }
+  }
+
+  void _moveThief(double dt) {
+    var vx = thiefX - px, vy = thiefY - py;
+    final len = max(0.001, sqrt(vx * vx + vy * vy));
+    vx /= len;
+    vy /= len;
+    // يتلوى شوية حتى ما يمشي خط مستقيم
+    final w = sin(clock * 2.3) * 0.6;
+    final ax = vx - vy * w, ay = vy + vx * w;
+    final l2 = max(0.001, sqrt(ax * ax + ay * ay));
+    final sp = 2.05 * dt;
+    final nx = thiefX + ax / l2 * sp, ny = thiefY + ay / l2 * sp;
+    if (!_blocked(nx, ny)) {
+      thiefX = nx;
+      thiefY = ny;
+    } else if (!_blocked(nx, thiefY)) {
+      thiefX = nx;
+    } else if (!_blocked(thiefX, ny)) {
+      thiefY = ny;
+    } else {
+      // محصور: يلف
+      final tx = thiefX - ay / l2 * sp, ty = thiefY + ax / l2 * sp;
+      if (!_blocked(tx, ty)) {
+        thiefX = tx;
+        thiefY = ty;
       }
     }
   }
@@ -476,6 +581,10 @@ class GameState extends ChangeNotifier {
     earn(q.reward);
     satisfaction = min(100.0, satisfaction + 3);
     houses[q.house].say('تسلم! 🙏');
+    final qp = housePos(q.house);
+    float(qp.dx, qp.dy, '📋 +${fmt(q.reward)}', 0xFF64B5F6);
+    sfx('win');
+    addXp(30);
     showToast('📋 خلص الواجب: $msg\n+${fmt(q.reward)} د.ع');
     notifyListeners();
   }
@@ -516,6 +625,7 @@ class GameState extends ChangeNotifier {
       if (events) {
         if (!nationalOn && !generating && !broken && fuel > 0) {
           alarm = alarmSeconds;
+          sfx('alarm');
           showToast('طفت الوطنية! شغّل المولدة بسرعة ⚡');
         } else {
           showToast(nationalOn
@@ -599,7 +709,11 @@ class GameState extends ChangeNotifier {
     if (events && thiefTime <= 0 && _rnd.nextDouble() < 0.3) {
       thiefTime = thiefSeconds;
       thiefPole = _rnd.nextInt(poles.length);
-      showToast('🦹 حرامي واير على عمود! اركض لعنده');
+      thiefX = poles[thiefPole].dx;
+      thiefY = poles[thiefPole].dy;
+      thiefRunning = false;
+      sfx('alarm');
+      showToast('🦹 حرامي على عمود! اركض لعنده');
     }
 
     // طلبات أمبير زيادة
@@ -726,8 +840,11 @@ class GameState extends ChangeNotifier {
     if (h.pending <= 0) return;
     earn(h.pending);
     totalCollected += h.pending;
-    h.say('+${fmt(h.pending)}');
+    final hp = housePos(i);
+    float(hp.dx, hp.dy, '+${fmt(h.pending)}');
+    sfx('coin');
     h.pending = 0;
+    addXp(10);
     if (collecting && pendingTotal == 0) _finishMonth();
     notifyListeners();
   }
@@ -755,6 +872,8 @@ class GameState extends ChangeNotifier {
       alarm = 0;
       alarmsSaved++;
       satisfaction = min(100.0, satisfaction + 4);
+      addXp(20);
+      float(genPos.dx, genPos.dy, '⚡ لحگت!', 0xFF66BB6A);
       showToast('لحگت! الناس ما حست بالانقطاع 👏');
     } else {
       showToast(running ? 'شغّلت المولدة' : 'طفّيت المولدة');
@@ -773,18 +892,17 @@ class GameState extends ChangeNotifier {
     thievesCaught++;
     earn(30000);
     satisfaction = min(100.0, satisfaction + 3);
-    showToast('مسكته! 👮 الجيران كافؤوك 30,000');
+    float(thiefX, thiefY, '👮 +30,000', 0xFF66BB6A);
+    sfx('win');
+    addXp(40);
+    showToast('لزمته! 👮');
     notifyListeners();
   }
 
   /// الضغط على الحرامي من بعيد ما يكفي
   void tapThief() {
-    if (_dist(poles[thiefPole]) < 2.2) {
-      catchThief();
-    } else {
-      showToast('بعيد! اركض لعند العمود 🏃');
-      notifyListeners();
-    }
+    showToast('اركض وراه ولزمه بإيدك! 🏃');
+    notifyListeners();
   }
 
   void acceptRequest(int i) {
@@ -820,6 +938,43 @@ class GameState extends ChangeNotifier {
   }
 
   void buyFuel() {
+    final space = fuelCapacity - fuel;
+    if (space < 1) {
+      showToast('الخزان مليان');
+    } else if (money < fuelPrice * 10) {
+      showToast('ما عندك فلوس كافية');
+    } else {
+      moveX = 0;
+      moveY = 0;
+      pumping = true;
+    }
+    notifyListeners();
+  }
+
+  /// نتيجة لعبة التعبئة: [fill] من 0 لـ 1، و[fast] إذا ملاها قبل الوكت
+  void finishPump(double fill, bool fast) {
+    pumping = false;
+    final space = fuelCapacity - fuel;
+    var liters = min(100.0 * fill, space);
+    var price = fuelPrice * (fast ? 0.85 : 1.0);
+    var cost = (liters * price).round();
+    if (cost > money) {
+      liters = money / price;
+      cost = money;
+    }
+    if (liters >= 1) {
+      money -= cost;
+      monthSpend += cost;
+      fuel += liters;
+      fuelBought++;
+      float(genPos.dx, genPos.dy, '⛽ +${liters.round()} لتر', 0xFFFFB300);
+      if (fast) showToast('سريع! خصم 15% 🔥');
+      addXp(fast ? 15 : 8);
+    }
+    notifyListeners();
+  }
+
+  void buyFuelOld() {
     final space = fuelCapacity - fuel;
     if (space < 1) {
       showToast('الخزان مليان');
@@ -864,6 +1019,26 @@ class GameState extends ChangeNotifier {
       repairDays = 0;
       showToast('مبروك! مولدة $capacityAmps أمبير');
     }
+    notifyListeners();
+  }
+
+  void startFootball() {
+    moveX = 0;
+    moveY = 0;
+    football = true;
+    notifyListeners();
+  }
+
+  void finishFootball(int goals) {
+    football = false;
+    lastFootball = _stamp;
+    if (goals > 0) {
+      earn(goals * 5000);
+      satisfaction = min(100.0, satisfaction + goals.toDouble());
+      float(kidsPos.dx, kidsPos.dy, '⚽ +${fmt(goals * 5000)}', 0xFF66BB6A);
+      addXp(goals * 15);
+    }
+    showToast(goals >= 2 ? 'الجهال فرحانين! 🎉' : 'الجهال غلبوك 😂 باچر عيدها');
     notifyListeners();
   }
 
@@ -1100,6 +1275,7 @@ class GameState extends ChangeNotifier {
     if (!spend(1000)) return 'ما عندك ألف دينار؟! 😅';
     teas++;
     satisfaction = min(100.0, satisfaction + 1);
+    addXp(5);
     final non = houses.where((h) => !h.subscribed).toList();
     final tips = <String>[
       'يگولون الحرامية يطلعون أكثر بالليل، دير بالك على الأعمدة',
@@ -1149,6 +1325,8 @@ class GameState extends ChangeNotifier {
         'teas': teas,
         'convinced': convinced,
         'quests': questsDone,
+        'xp': xp,
+        'plevel': level,
         'px': px,
         'py': py,
         'houses': houses.map((h) => h.toJson()).toList(),
@@ -1189,6 +1367,8 @@ class GameState extends ChangeNotifier {
     teas = gi('teas', 0);
     convinced = gi('convinced', 0);
     questsDone = gi('quests', 0);
+    xp = gi('xp', 0);
+    level = gi('plevel', 1);
     px = gd('px', 3.5);
     py = gd('py', 2.3);
     if (_blocked(px, py)) {

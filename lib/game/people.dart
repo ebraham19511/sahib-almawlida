@@ -3,7 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 
 /// أشكال الناس بالمحلة
-enum PersonLook { dishdasha, shemagh, abaya, kid, oldMan, player, doctor }
+enum PersonLook { dishdasha, shemagh, abaya, kid, oldMan, player, doctor, thief }
 
 Color _shadeColor(int argb, double light) {
   final k = 0.35 + 0.65 * light;
@@ -53,6 +53,8 @@ void drawPerson(
       robe = 0xFF78909C;
     case PersonLook.doctor:
       robe = 0xFFFFFFFF;
+    case PersonLook.thief:
+      robe = 0xFF1A1A1A;
   }
 
   // الرجلين
@@ -139,6 +141,12 @@ void drawPerson(
       c.drawCircle(head, hr, Paint()..color = skin);
       c.drawArc(Rect.fromCircle(center: head, radius: hr), pi, pi, true, Paint()..color = sh(0xFFE0E0E0));
       c.drawCircle(head.translate(0, -hr * 0.85), hr * 0.55, Paint()..color = sh(0xFFFFFFFF)); // عرقجين
+    case PersonLook.thief:
+      c.drawCircle(head, hr, Paint()..color = const Color(0xFF111111));
+      c.drawRect(Rect.fromLTRB(head.dx - hr * 0.8, head.dy - hr * 0.25, head.dx + hr * 0.8, head.dy + hr * 0.1),
+          Paint()..color = const Color(0xFFFFFFFF));
+      // كيس واير على الظهر
+      c.drawCircle(Offset(head.dx - face * hr * 1.4, head.dy + hr * 2.2), hr * 0.9, Paint()..color = const Color(0xFF795548));
     case PersonLook.player:
       c.drawCircle(head, hr, Paint()..color = skin);
       c.drawArc(Rect.fromCircle(center: head, radius: hr), pi, pi, true, Paint()..color = sh(0xFF212121));

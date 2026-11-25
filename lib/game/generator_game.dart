@@ -3,11 +3,14 @@ import 'dart:ui';
 import 'package:flame/game.dart';
 
 import 'scene.dart';
+import 'sound.dart';
 import 'state.dart';
 
 class GeneratorGame extends FlameGame {
   final GameState state;
-  GeneratorGame(this.state);
+  GeneratorGame(this.state) {
+    state.onSfx = (n) => Sfx.play(n);
+  }
 
   @override
   Future<void> onLoad() async {

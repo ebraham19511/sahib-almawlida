@@ -149,10 +149,10 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
   }
 
   void _layout() {
-    const topUi = 205.0, bottomUi = 200.0;
+    const topUi = 165.0, bottomUi = 175.0;
     _top = topUi;
     _bottom = size.y - bottomUi;
-    tw = min(size.x * 0.26, 140.0);
+    tw = min(size.x * 0.2, 110.0);
     th = tw / 2;
     _screenCenter = Offset(size.x / 2, topUi + (size.y - topUi - bottomUi) * 0.55);
   }
@@ -198,7 +198,10 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
       final ahead = (state.px - c.x) * c.dir;
       if ((state.py - c.lane).abs() < 0.45 && ahead > 0 && ahead < 1.4) {
         target = 0;
-        if (c.honk <= 0) c.honk = 1.2;
+        if (c.honk <= 0) {
+          c.honk = 1.2;
+          state.sfx('honk');
+        }
       }
       for (final o in _cars) {
         if (o == c || o.lane != c.lane) continue;
@@ -303,11 +306,72 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
     _wires(c);
     _smoke(c);
     _thief(c);
+    _playerGhost(c);
     _bubbles(c);
     _questMarks(c);
+    _kidsMark(c);
     _carHonks(c);
+    _floaters(c);
     _sunMoon(c);
     _edgeMarkers(c);
+    _confetti(c);
+  }
+
+  // اللاعب يبين حتى ورا البيوت
+  void _playerGhost(Canvas c) {
+    final p = iso(state.px, state.py);
+    c.saveLayer(Rect.fromCircle(center: p, radius: tw), Paint()..color = const Color(0x66000000));
+    drawPerson(c, p, tw, PersonLook.player,
+        light: 1, walkPhase: state.walking ? state.clock * 10 : null, face: state.faceX, scale: 1.25);
+    c.restore();
+    final bob = sin(state.clock * 4) * 3;
+    final a = p.translate(0, -tw * 0.5 + bob);
+    c.drawPath(
+      Path()
+        ..moveTo(a.dx - 8, a.dy - 12)
+        ..lineTo(a.dx + 8, a.dy - 12)
+        ..lineTo(a.dx, a.dy)
+        ..close(),
+      Paint()..color = const Color(0xFFFFC107),
+    );
+  }
+
+  void _kidsMark(Canvas c) {
+    if (!state.footballReady) return;
+    final p = iso(GameState.kidsPos.dx, GameState.kidsPos.dy).translate(0, -tw * 0.6 + sin(state.clock * 4) * 4);
+    c.drawCircle(p, 14, Paint()..color = const Color(0xEE43A047));
+    _text(c, '⚽', p, 14, Colors.white);
+  }
+
+  void _floaters(Canvas c) {
+    for (final f in state.floaters) {
+      final t = f.t / 1.6;
+      final p = iso(f.gx, f.gy).translate(0, -tw * 0.7 - t * 50);
+      final a = ((1 - t) * 255).round().clamp(0, 255);
+      final col = Color(f.color);
+      final tp = _tp(f.text, 18, Color.fromARGB(255, (col.toARGB32() >> 16) & 0xFF, (col.toARGB32() >> 8) & 0xFF, col.toARGB32() & 0xFF),
+          bold: true);
+      c.saveLayer(Rect.fromCenter(center: p, width: tp.width + 20, height: tp.height + 10), Paint()..color = Color.fromARGB(a, 0, 0, 0));
+      final r = Rect.fromCenter(center: p, width: tp.width + 14, height: tp.height + 6);
+      c.drawRRect(RRect.fromRectAndRadius(r, const Radius.circular(10)), Paint()..color = const Color(0xAA000000));
+      tp.paint(c, Offset(r.left + 7, r.top + 3));
+      c.restore();
+    }
+  }
+
+  void _confetti(Canvas c) {
+    if (state.celebrate <= 0) return;
+    const cols = [0xFFE53935, 0xFFFFC107, 0xFF43A047, 0xFF1E88E5, 0xFF8E24AA, 0xFFFF7043];
+    final t = 2.5 - state.celebrate;
+    for (var k = 0; k < 70; k++) {
+      final x = (k * 97 % 1000) / 1000 * size.x + sin(t * 3 + k) * 12;
+      final y = ((k * 53 % 400) / 400 * -size.y * 0.5) + t * size.y * 0.55 + _top;
+      c.save();
+      c.translate(x, y);
+      c.rotate(t * 4 + k);
+      c.drawRect(const Rect.fromLTWH(-4, -2, 8, 4), Paint()..color = Color(cols[k % cols.length]));
+      c.restore();
+    }
   }
 
   Color _shade(int argb, [double extra = 1]) {
@@ -1030,17 +1094,7 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
         ..strokeWidth = 2,
     );
     drawPerson(c, p, tw, PersonLook.player,
-        light: max(_light, 0.6), walkPhase: state.walking ? state.clock * 10 : null, face: state.faceX);
-    final bob = sin(state.clock * 4) * 3;
-    final a = p.translate(0, -tw * 0.42 + bob);
-    c.drawPath(
-      Path()
-        ..moveTo(a.dx - 7, a.dy - 10)
-        ..lineTo(a.dx + 7, a.dy - 10)
-        ..lineTo(a.dx, a.dy)
-        ..close(),
-      Paint()..color = const Color(0xFFFFC107),
-    );
+        light: max(_light, 0.6), walkPhase: state.walking ? state.clock * 10 : null, face: state.faceX, scale: 1.25);
   }
 
   void _sag(Canvas c, Offset a, Offset b, Paint paint, [double amount = 0.15]) {
@@ -1082,12 +1136,31 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
   }
 
   Offset _thiefPos() {
+    if (state.thiefRunning) return iso(state.thiefX, state.thiefY).translate(0, -tw * 0.15);
     final pl = GameState.poles[state.thiefPole % GameState.poles.length];
     return iso(pl.dx, pl.dy).translate(tw * 0.06, -tw * 0.6);
   }
 
   void _thief(Canvas c) {
     if (state.thiefTime <= 0) return;
+    if (state.thiefRunning) {
+      final f = iso(state.thiefX, state.thiefY);
+      c.drawCircle(f, tw * 0.3, Paint()..color = const Color(0x44FF1744));
+      c.drawArc(
+        Rect.fromCircle(center: f, radius: tw * 0.3),
+        -pi / 2,
+        2 * pi * (state.thiefTime / GameState.thiefSeconds),
+        false,
+        Paint()
+          ..color = const Color(0xFFFF1744)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3,
+      );
+      drawPerson(c, f, tw, PersonLook.thief,
+          light: 1, walkPhase: state.overlayOpen ? null : state.clock * 14, face: state.thiefX >= state.px ? 1 : -1, scale: 1.2);
+      _text(c, '🦹', f.translate(0, -tw * 0.45), 16, Colors.white);
+      return;
+    }
     final p = _thiefPos();
     final s = tw * 0.07;
     final wiggle = sin(state.clock * 12) * s * 0.3;
