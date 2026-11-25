@@ -18,6 +18,8 @@ class House {
   int pending = 0; // فلوس تنتظر الجمع (العملة فوك البيت)
   String? bubble; // كلام فوك البيت
   double bubbleTime = 0;
+  double coinTime = 0; // وكت العملة قبل ما "يهرب" صاحبها
+  double requestTime = 0; // طلب أمبير زيادة ينتظر موافقتك
 
   House({
     required this.name,
@@ -74,17 +76,22 @@ class Mission {
 
 /// كل منطق اللعبة هنا، والرسم والواجهة يقرون منه
 class GameState extends ChangeNotifier {
-  static const double secondsPerDay = 6; // يوم باللعبة = 6 ثواني (الشهر = 3 دقائق)
+  static const double secondsPerDay = 4; // يوم باللعبة = 4 ثواني (الشهر = دقيقتين)
   static const int daysPerMonth = 30;
   static const int fairPrice = 15000; // سعر الأمبير "المعقول" بالحي
   static const int maintenanceCost = 50000;
-  static const int tutorialCount = 5;
-  static const String _key = 'save_v2';
+  static const int tutorialCount = 6;
+  static const String _key = 'save_v3';
+  static const double coinSeconds = 7;
+  static const double alarmSeconds = 5;
+  static const double thiefSeconds = 4;
 
   static final List<Mission> missions = [
     Mission('اشترِ كاز للمولدة', 50000, (s) => s.fuelBought > 0),
     Mission('اجمع فلوس أول شهر من العملات', 50000, (s) => s.totalCollected > 0),
     Mission('سوّي صيانة للمولدة', 50000, (s) => s.maintCount > 0),
+    Mission('امسك حرامي واير بالليل', 75000, (s) => s.thievesCaught > 0),
+    Mission('شغّل المولدة بسرعة لما تنقطع الوطنية', 75000, (s) => s.alarmsSaved > 0),
     Mission('وصّل 8 مشتركين', 150000, (s) => s.subscribers >= 8),
     Mission('خلّي رضا الناس 70% أو أكثر', 100000, (s) => s.satisfaction >= 70),
     Mission('اجمع 2,000,000 دينار', 200000, (s) => s.money >= 2000000),
@@ -122,7 +129,15 @@ class GameState extends ChangeNotifier {
   int maintCount = 0;
   int totalCollected = 0;
   bool collecting = false; // آخر الشهر: ننتظر اللاعب يجمع العملات
+  bool fixing = false; // لعبة تصليح المولدة مفتوحة
   int speed = 1;
+
+  // لحظات الحركة
+  double alarm = 0; // انقطعت الوطنية والمولدة مطفية: عد تنازلي
+  double thiefTime = 0; // حرامي واير على عمود
+  int thiefPole = 0;
+  int thievesCaught = 0;
+  int alarmsSaved = 0;
 
   final List<String> _late = [];
   final List<String> _left = [];
@@ -152,7 +167,8 @@ class GameState extends ChangeNotifier {
 
   // ---------- قراءات ----------
   bool get tutorialActive => tutorialStep < tutorialCount;
-  bool get paused => currentEvent != null || report != null || collecting || tutorialActive;
+  bool get paused => currentEvent != null || report != null || collecting || fixing || tutorialActive;
+  bool get overlayOpen => currentEvent != null || report != null || fixing || tutorialActive;
   bool get generating => running && !broken && fuel > 0;
   bool houseLit(House h) => nationalOn || (h.subscribed && generating);
   bool priceTooHigh(House h) => ampPrice * h.rate > h.maxPrice;
@@ -202,12 +218,64 @@ class GameState extends ChangeNotifier {
       _saveTimer = 0;
       save();
     }
+    if (!overlayOpen) _tickAction(dt);
     if (paused) return;
     _dayTimer += dt * speed;
     if (_dayTimer >= secondsPerDay) {
       _dayTimer -= secondsPerDay;
       _advanceDay(events: true);
       notifyListeners();
+    }
+  }
+
+  /// العدادات اللي تحتاج سرعة من اللاعب (تمشي بالوكت الحقيقي)
+  void _tickAction(double dt) {
+    if (collecting) {
+      for (final h in houses) {
+        if (h.pending > 0) {
+          h.coinTime -= dt;
+          if (h.coinTime <= 0) {
+            h.debt += h.pending;
+            h.pending = 0;
+            _late.add(h.name);
+            h.say('هرب! 🏃');
+            if (pendingTotal == 0) _finishMonth();
+            notifyListeners();
+          }
+        }
+      }
+      return;
+    }
+    for (final h in houses) {
+      if (h.requestTime > 0) h.requestTime -= dt;
+    }
+    if (alarm > 0) {
+      if (generating || nationalOn) {
+        alarm = 0;
+        notifyListeners();
+      } else {
+        final before = alarm.ceil();
+        alarm -= dt;
+        if (alarm.ceil() != before && alarm > 0) notifyListeners();
+        if (alarm <= 0) {
+          alarm = 0;
+          satisfaction = max(0.0, satisfaction - 12);
+          for (final h in houses.where((h) => h.subscribed).take(3)) {
+            h.say('طفت!! 😡');
+          }
+          showToast('تأخرت! الناس زعلت');
+          notifyListeners();
+        }
+      }
+    }
+    if (thiefTime > 0) {
+      thiefTime -= dt;
+      if (thiefTime <= 0) {
+        thiefTime = 0;
+        penalty(75000);
+        showToast('الحرامي بالواير وهرب! خسرت 75,000');
+        notifyListeners();
+      }
     }
   }
 
@@ -218,10 +286,17 @@ class GameState extends ChangeNotifier {
 
   void _advanceDay({required bool events}) {
     // الوطنية تجي وتروح
-    if (_rnd.nextDouble() < 0.25) {
+    if (_rnd.nextDouble() < 0.3) {
       nationalOn = !nationalOn;
       if (events) {
-        showToast(nationalOn ? 'جات الوطنية! الطلب نزل' : 'طفت الوطنية! الحي كله على مولدتك');
+        if (!nationalOn && !generating && !broken && fuel > 0) {
+          alarm = alarmSeconds;
+          showToast('طفت الوطنية! شغّل المولدة بسرعة ⚡');
+        } else {
+          showToast(nationalOn
+              ? (running ? 'جات الوطنية! طفّي المولدة ووفّر الكاز' : 'جات الوطنية!')
+              : 'طفت الوطنية! الحي كله على مولدتك');
+        }
       }
     }
 
@@ -237,7 +312,7 @@ class GameState extends ChangeNotifier {
 
     // التشغيل والكاز
     if (generating) {
-      final use = 3 + effectiveLoad * 0.25;
+      final use = nationalOn ? 6.0 : 3 + effectiveLoad * 0.25; // شغالة والوطنية جاية = كاز ضايع
       fuel = max(0.0, fuel - use);
       health -= overloaded ? 4 : 0.8;
       if (!nationalOn) satisfaction += overloaded ? -2 : 1;
@@ -295,8 +370,23 @@ class GameState extends ChangeNotifier {
       if (events) showToast('سعر الكاز صار ${fmt(fuelPrice)} للتر');
     }
 
+    // حرامي واير بالليل
+    if (events && thiefTime <= 0 && _rnd.nextDouble() < 0.12) {
+      thiefTime = thiefSeconds;
+      thiefPole = _rnd.nextInt(4);
+      showToast('🦹 حرامي واير على العمود! اضغط عليه بسرعة');
+    }
+
+    // طلب أمبير زيادة
+    if (events && _rnd.nextDouble() < 0.25) {
+      final cand = houses.where((h) => h.subscribed && h.requestTime <= 0 && h.amps < 15).toList();
+      if (cand.isNotEmpty) {
+        cand[_rnd.nextInt(cand.length)].requestTime = 6;
+      }
+    }
+
     // حدث عشوائي
-    if (events && currentEvent == null && _rnd.nextDouble() < 0.12) {
+    if (events && currentEvent == null && _rnd.nextDouble() < 0.1) {
       currentEvent = EventLibrary.random(this, _rnd);
     }
 
@@ -337,13 +427,14 @@ class GameState extends ChangeNotifier {
       } else {
         h.pending = bill + h.debt;
         h.debt = 0;
+        h.coinTime = coinSeconds + _rnd.nextDouble() * 3;
       }
     }
     day = 1;
     month++;
     if (pendingTotal > 0) {
       collecting = true;
-      showToast('آخر الشهر! اضغط على العملات حتى تجمع فلوسك');
+      showToast('آخر الشهر! اجمع العملات بسرعة قبل ما يهربون 🏃');
     } else {
       _finishMonth();
     }
@@ -418,7 +509,56 @@ class GameState extends ChangeNotifier {
 
   void toggleRunning() {
     running = !running;
-    showToast(running ? 'شغّلت المولدة' : 'طفّيت المولدة');
+    if (running && alarm > 0 && generating) {
+      alarm = 0;
+      alarmsSaved++;
+      satisfaction = min(100.0, satisfaction + 4);
+      showToast('لحگت! الناس ما حست بالانقطاع 👏');
+    } else {
+      showToast(running ? 'شغّلت المولدة' : 'طفّيت المولدة');
+    }
+    notifyListeners();
+  }
+
+  void catchThief() {
+    if (thiefTime <= 0) return;
+    thiefTime = 0;
+    thievesCaught++;
+    earn(30000);
+    satisfaction = min(100.0, satisfaction + 3);
+    showToast('مسكته! 👮 الجيران كافؤوك 30,000');
+    notifyListeners();
+  }
+
+  void acceptRequest(int i) {
+    final h = houses[i];
+    if (h.requestTime <= 0) return;
+    h.requestTime = 0;
+    final extra = 1 + _rnd.nextInt(2);
+    h.amps += extra;
+    satisfaction = min(100.0, satisfaction + 1);
+    h.say('شكراً! +$extra أمبير');
+    notifyListeners();
+  }
+
+  void startFix() {
+    currentEvent = null;
+    fixing = true;
+    notifyListeners();
+  }
+
+  void fixResult(bool success) {
+    fixing = false;
+    if (success) {
+      broken = false;
+      repairDays = 0;
+      health = 75;
+      showToast('صلّحتها بإيدك! 🔧 ما دفعت ولا فلس');
+    } else {
+      repairDays = 4;
+      spend(60000);
+      showToast('ما لحگت... جبت فيتر، 4 أيام وتخلص');
+    }
     notifyListeners();
   }
 
@@ -492,6 +632,8 @@ class GameState extends ChangeNotifier {
   void tapHouse(int i) {
     if (houses[i].pending > 0) {
       collect(i);
+    } else if (houses[i].requestTime > 0) {
+      acceptRequest(i);
     } else {
       select(selected == i ? null : i);
     }
@@ -551,6 +693,8 @@ class GameState extends ChangeNotifier {
         'maint': maintCount,
         'collected': totalCollected,
         'collecting': collecting,
+        'thieves': thievesCaught,
+        'alarms': alarmsSaved,
         'houses': houses.map((h) => h.toJson()).toList(),
         'savedAt': DateTime.now().millisecondsSinceEpoch,
       };
@@ -584,6 +728,11 @@ class GameState extends ChangeNotifier {
     maintCount = gi('maint', 0);
     totalCollected = gi('collected', 0);
     collecting = j['collecting'] as bool? ?? false;
+    thievesCaught = gi('thieves', 0);
+    alarmsSaved = gi('alarms', 0);
+    for (final h in houses) {
+      if (h.pending > 0) h.coinTime = coinSeconds;
+    }
     if (collecting && pendingTotal == 0) collecting = false;
     if (broken && repairDays == 0) repairDays = 3;
   }
@@ -634,4 +783,4 @@ String fmt(num n) {
     b.write(s[i]);
   }
   return (n < 0 ? '-' : '') + b.toString();
-} 
+}

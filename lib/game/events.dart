@@ -25,6 +25,10 @@ class EventLibrary {
         burnedTitle,
         'المولدة وكفت والحي كله يصيح "طفت!". شتسوي؟',
         [
+          EventChoice('صلّحها بإيدك 🔧 (مجاناً)', (s) {
+            s.startFix();
+            return null;
+          }),
           EventChoice('تصليح سريع (150,000)', (s) {
             if (!s.spend(150000)) {
               s.repairDays = 5;
@@ -90,7 +94,7 @@ class EventLibrary {
 
   static GameEvent? _abuMohammed(GameState s) {
     final h = s.houses[0];
-    if (h.rate < 1) return null;
+    if (h.rate < 1) return null; // سبق وتفاهمتوا
     return GameEvent(
       'أبو محمد والـ 10 أمبير',
       'أبو محمد يريد 10 أمبير بسعر 5، ويگول: "إحنا جيران من زمان".',

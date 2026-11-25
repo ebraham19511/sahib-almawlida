@@ -141,7 +141,43 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
     }
     _wires(c);
     _smoke(c);
+    _thief(c);
     _bubbles(c);
+  }
+
+  Offset _thiefPos() {
+    final pl = poles[state.thiefPole % poles.length];
+    final base = iso(pl.dx, pl.dy);
+    return base.translate(tw * 0.06, -tw * 0.55);
+  }
+
+  // حرامي متسلق على العمود
+  void _thief(Canvas c) {
+    if (state.thiefTime <= 0) return;
+    final p = _thiefPos();
+    final s = tw * 0.07;
+    final wiggle = sin(state.clock * 12) * s * 0.3;
+    final flash = (state.clock * 4).floor().isEven;
+    c.drawCircle(p, tw * 0.32, Paint()..color = flash ? const Color(0x66FF1744) : const Color(0x33FF1744));
+    // عداد
+    c.drawArc(
+      Rect.fromCircle(center: p, radius: tw * 0.32),
+      -pi / 2,
+      2 * pi * (state.thiefTime / GameState.thiefSeconds),
+      false,
+      Paint()
+        ..color = const Color(0xFFFF1744)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3,
+    );
+    c.drawRRect(
+      RRect.fromRectAndRadius(Rect.fromLTWH(p.dx - s * 0.5 + wiggle, p.dy - s, s, s * 2), Radius.circular(s * 0.3)),
+      Paint()..color = const Color(0xFF111111),
+    );
+    c.drawCircle(p.translate(wiggle, -s * 1.4), s * 0.5, Paint()..color = const Color(0xFF111111));
+    c.drawLine(p.translate(wiggle - s * 0.4, -s * 1.5), p.translate(wiggle + s * 0.4, -s * 1.5),
+        Paint()..color = const Color(0xFFFFFFFF)..strokeWidth = 1.5);
+    _text(c, '🦹', p.translate(0, -tw * 0.45), tw * 0.2, Colors.white);
   }
 
   Color _shade(int argb, [double extra = 1]) {
@@ -211,7 +247,7 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
         c.drawPath(path, line);
       }
     }
-    // خط بنص الزگاق
+    // خط الرصيف بالزگاق
     final dash = Paint()
       ..color = _shade(0xFFEDE7D9)
       ..strokeWidth = 2;
@@ -221,6 +257,7 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
     }
   }
 
+  // يرجع نقاط الجدارين
   void _box(Canvas c, Offset p, double w, double h, double height, Color top, Color left, Color right) {
     final l = Offset(p.dx - w / 2, p.dy), b = Offset(p.dx, p.dy + h / 2), r = Offset(p.dx + w / 2, p.dy);
     final lp = Path()
@@ -290,7 +327,7 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
     c.drawPath(_quad(onRight, 0.55, 0.8, 0, height * 0.5), Paint()..color = _shade(0xFF5D4037));
     c.drawCircle(onRight(0.6, height * 0.25), tw * 0.012, Paint()..color = _shade(0xFFFFC107));
 
-    // سبلت على الجدار
+    // سبلت (مبردة) على الجدار
     c.drawPath(_quad(onLeft, 0.78, 0.95, height * 0.12, height * 0.3), Paint()..color = _shade(0xFFECEFF1));
     c.drawPath(
       _quad(onLeft, 0.8, 0.93, height * 0.16, height * 0.19),
@@ -391,7 +428,7 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
     Offset onLeft(double u, double v) => Offset(l.dx + (b.dx - l.dx) * u, l.dy + (b.dy - l.dy) * u - v);
     Offset onRight(double u, double v) => Offset(b.dx + (r.dx - b.dx) * u, b.dy + (r.dy - b.dy) * u - v);
 
-    // الرادييتر ولوحة التحكم
+    // الرادييتر (خطوط) ولوحة التحكم
     final grill = Paint()
       ..color = _shade(0xFF1B2E20)
       ..strokeWidth = 1.2;
@@ -423,6 +460,16 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
     );
     _exhaust = pipeTop;
     _genTop = Offset(p.dx - w * 0.15, p.dy - height);
+
+    if (state.alarm > 0 && (state.clock * 5).floor().isEven) {
+      c.drawPath(
+        _diamond(p, w * 1.3, h * 1.3, height),
+        Paint()
+          ..color = const Color(0xFFFF1744)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 4,
+      );
+    }
 
     if (state.selected == -1) {
       c.drawPath(
@@ -494,8 +541,23 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
             ..style = PaintingStyle.stroke
             ..strokeWidth = 2,
         );
+        c.drawArc(
+          Rect.fromCircle(center: cpos, radius: rr * 1.35),
+          -pi / 2,
+          2 * pi * (h.coinTime / GameState.coinSeconds).clamp(0.0, 1.0),
+          false,
+          Paint()
+            ..color = h.coinTime < 2.5 ? const Color(0xFFFF1744) : const Color(0xFFFFFFFF)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 3,
+        );
         _text(c, 'د.ع', cpos, fs * 0.8, const Color(0xFF5D4037), bold: true);
         _text(c, fmt(h.pending), cpos.translate(0, rr + fs * 0.8), fs * 0.85, Colors.white, bold: true);
+      } else if (h.requestTime > 0) {
+        final pulse = 1 + 0.08 * sin(state.clock * 8);
+        final rect = Rect.fromCenter(center: anchor, width: tw * 0.75 * pulse, height: fs * 1.9 * pulse);
+        c.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(12)), Paint()..color = const Color(0xFF43A047));
+        _text(c, '⚡ +أمبير؟', anchor, fs * 0.9, Colors.white, bold: true);
       } else if (h.bubble != null) {
         final tp = TextPainter(
           text: TextSpan(
@@ -528,7 +590,12 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
   @override
   void onTapDown(TapDownEvent event) {
     final pt = Offset(event.localPosition.x, event.localPosition.y);
-    // العملات أولاً
+    // الحرامي أولاً
+    if (state.thiefTime > 0 && (pt - _thiefPos()).distance < tw * 0.5) {
+      state.catchThief();
+      return;
+    }
+    // العملات
     for (var i = 0; i < state.houses.length; i++) {
       if (state.houses[i].pending <= 0) continue;
       final anchor = _roofPoint(i).translate(tw * 0.1, -tw * 0.3);
@@ -551,9 +618,13 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
     final gp = iso(genGrid.dx, genGrid.dy);
     final gRect = Rect.fromLTRB(gp.dx - tw * 0.5, gp.dy - tw * 0.6, gp.dx + tw * 0.5, gp.dy + th * 0.5);
     if (gRect.contains(pt)) {
-      state.select(state.selected == -1 ? null : -1);
+      if (state.alarm > 0 && !state.running) {
+        state.toggleRunning();
+      } else {
+        state.select(state.selected == -1 ? null : -1);
+      }
       return;
     }
     state.select(null);
   }
-} 
+}
