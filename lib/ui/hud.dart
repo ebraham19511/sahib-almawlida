@@ -21,30 +21,34 @@ class GameHud extends StatelessWidget {
       animation: state,
       builder: (context, _) {
         final playing = !state.overlayOpen;
+        final under = topInset + 128;
         return Stack(
           children: [
             Positioned(top: 0, left: 0, right: 0, child: SafeArea(child: _TopBar(state: state))),
             Positioned(left: 0, right: 0, bottom: 0, child: SafeArea(child: _BottomBar(state: state))),
-            if (playing) Positioned(left: 10, bottom: 205, child: _Joystick(key: const ValueKey('joy'), state: state)),
-            if (playing) Positioned(right: 10, bottom: 225, child: _ContextButton(state: state)),
-            if (state.selected != null && !state.collecting && state.alarm <= 0)
-              Positioned(left: 12, right: 12, top: topInset + 262, child: _InfoCard(state: state)),
+            if (playing) Positioned(left: 10, bottom: 175, child: _Joystick(key: const ValueKey('joy'), state: state)),
+            if (playing) Positioned(right: 14, bottom: 180, child: _SprintButton(state: state)),
+            if (playing) Positioned(right: 10, bottom: 275, child: _ContextButton(state: state)),
+            if (playing)
+              Positioned(left: 10, top: under, child: _QuestButton(state: state)),
+            if (playing && state.questsOpen && state.quests.isNotEmpty)
+              Positioned(left: 10, top: under + 46, child: _QuestList(state: state)),
+            if (state.selected != null && !state.collecting && state.alarm <= 0 && playing)
+              Positioned(left: 12, right: 12, top: under + 46, child: _InfoCard(state: state)),
             if (state.collecting && playing)
-              Positioned(left: 16, right: 16, top: topInset + 262, child: _CollectBanner(state: state)),
+              Positioned(left: 16, right: 16, top: under + 46, child: _CollectBanner(state: state)),
             if (state.alarm > 0 && playing)
-              Positioned(left: 16, right: 16, top: topInset + 262, child: _AlarmBanner(state: state)),
-            if (playing && state.quests.isNotEmpty && state.selected == null && !state.collecting && state.alarm <= 0)
-              Positioned(right: 10, top: topInset + 262, child: _QuestList(state: state)),
+              Positioned(left: 16, right: 16, top: under + 46, child: _AlarmBanner(state: state)),
             if (state.toast != null && !state.tutorialActive)
               Positioned(
-                top: topInset + 212,
-                left: 24,
-                right: 24,
+                top: under,
+                left: 70,
+                right: 16,
                 child: Center(
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    decoration: BoxDecoration(color: _panel, borderRadius: BorderRadius.circular(24)),
-                    child: Text(state.toast!, textAlign: TextAlign.center, style: const TextStyle(fontSize: 14)),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(color: _panel, borderRadius: BorderRadius.circular(20)),
+                    child: Text(state.toast!, textAlign: TextAlign.center, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
                   ),
                 ),
               ),
@@ -52,11 +56,87 @@ class GameHud extends StatelessWidget {
               _Interior(key: ValueKey('visit${state.visiting}'), state: state, index: state.visiting!),
             if (state.currentEvent != null && !state.tutorialActive) _EventOverlay(state: state),
             if (state.fixing && !state.tutorialActive) _FixGame(key: const ValueKey('fix'), state: state),
+            if (state.pumping && !state.tutorialActive) _PumpGame(key: const ValueKey('pump'), state: state),
+            if (state.football && !state.tutorialActive) _PenaltyGame(key: const ValueKey('ball'), state: state),
             if (state.report != null && !state.tutorialActive) _ReportOverlay(state: state),
             if (state.tutorialActive) _Tutorial(state: state),
           ],
         );
       },
+    );
+  }
+}
+
+// ---------------- زر الركض ----------------
+class _SprintButton extends StatelessWidget {
+  final GameState state;
+  const _SprintButton({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => state.setSprint(true),
+      onTapUp: (_) => state.setSprint(false),
+      onTapCancel: () => state.setSprint(false),
+      onLongPressStart: (_) => state.setSprint(true),
+      onLongPressEnd: (_) => state.setSprint(false),
+      child: SizedBox(
+        width: 78,
+        height: 78,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            SizedBox(
+              width: 78,
+              height: 78,
+              child: CircularProgressIndicator(
+                value: state.stamina,
+                strokeWidth: 6,
+                color: const Color(0xFF66BB6A),
+                backgroundColor: Colors.white12,
+              ),
+            ),
+            Container(
+              width: 62,
+              height: 62,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: state.sprinting ? const Color(0xFFE8892B) : const Color(0xCC263042),
+              ),
+              child: const Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text('🏃', style: TextStyle(fontSize: 24)),
+                  Text('ركض', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------- زر الواجبات ----------------
+class _QuestButton extends StatelessWidget {
+  final GameState state;
+  const _QuestButton({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    final n = state.quests.length;
+    return Material(
+      color: n > 0 ? const Color(0xFF1E88E5) : const Color(0xCC263042),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: state.toggleQuests,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Text('📋 $n', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        ),
+      ),
     );
   }
 }
@@ -173,6 +253,9 @@ class _ContextButton extends StatelessWidget {
       final h = state.houses[near];
       label = '🚪 ادخل\n${h.owner}';
       onTap = () => state.enterHouse(near);
+    } else if (state.nearKids) {
+      label = '⚽ العب\nويه الجهال';
+      onTap = state.startFootball;
     } else if (state.nearTea) {
       label = '☕ ادخل\nالجايخانة';
       onTap = state.enterTea;
@@ -575,106 +658,141 @@ class _TopBar extends StatelessWidget {
   final GameState state;
   const _TopBar({required this.state});
 
+  String get _face {
+    final s = state.satisfaction;
+    if (s >= 75) return '😄';
+    if (s >= 50) return '🙂';
+    if (s >= 30) return '😐';
+    return '😠';
+  }
+
   @override
   Widget build(BuildContext context) {
     final m = state.mission;
+    final night = state.isNight;
     return Container(
-      margin: const EdgeInsets.all(8),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(color: _panel, borderRadius: BorderRadius.circular(16)),
+      margin: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(colors: [Color(0xEE1B2437), Color(0xEE121826)]),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white10),
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             children: [
-              const Icon(Icons.payments, color: Color(0xFF66BB6A), size: 20),
-              const SizedBox(width: 6),
-              Text('${fmt(state.money)} د.ع',
-                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+              // المستوى والنجوم
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  SizedBox(
+                    width: 36,
+                    height: 36,
+                    child: CircularProgressIndicator(
+                      value: state.xp / state.xpNext,
+                      strokeWidth: 4,
+                      color: const Color(0xFFFFC107),
+                      backgroundColor: Colors.white12,
+                    ),
+                  ),
+                  Text('${state.level}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFFFFC107))),
+                ],
+              ),
+              const SizedBox(width: 8),
+              const Text('💰', style: TextStyle(fontSize: 18)),
+              const SizedBox(width: 4),
+              Text(fmt(state.money), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const Spacer(),
-              Text('ش${state.month} · يوم ${state.day}', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+              Text(night ? '🌙' : '☀️', style: const TextStyle(fontSize: 16)),
+              Text(' ${state.day}', style: const TextStyle(color: Colors.white70, fontSize: 13)),
               const SizedBox(width: 6),
               _SmallButton(label: '×${state.speed}', onTap: state.toggleSpeed),
               const SizedBox(width: 4),
               _SmallButton(label: '؟', onTap: state.showHelp),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Row(
             children: [
-              Expanded(
-                child: _Meter(
-                  icon: Icons.local_gas_station,
-                  label: 'الكاز ${state.fuel.round()}/${state.fuelCapacity.round()}',
-                  value: state.fuel / state.fuelCapacity,
-                  color: const Color(0xFFFFB300),
-                ),
+              _IconMeter(emoji: '⛽', value: state.fuel / state.fuelCapacity, color: const Color(0xFFFFB300)),
+              const SizedBox(width: 8),
+              _IconMeter(emoji: '🔧', value: state.health / 100, color: const Color(0xFF42A5F5)),
+              const SizedBox(width: 8),
+              _IconMeter(
+                emoji: _face,
+                value: state.satisfaction / 100,
+                color: state.satisfaction < 30 ? const Color(0xFFEF5350) : const Color(0xFF66BB6A),
               ),
               const SizedBox(width: 8),
-              Expanded(
-                child: _Meter(
-                  icon: Icons.build,
-                  label: 'الحالة ${state.health.round()}%',
-                  value: state.health / 100,
-                  color: const Color(0xFF42A5F5),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _Meter(
-                  icon: Icons.sentiment_satisfied_alt,
-                  label: 'الرضا ${state.satisfaction.round()}%',
-                  value: state.satisfaction / 100,
-                  color: state.satisfaction < 30 ? const Color(0xFFEF5350) : const Color(0xFF66BB6A),
-                ),
-              ),
+              _Pill(emoji: '⚡', text: state.nationalOn ? 'وطنية' : 'طافية',
+                  color: state.nationalOn ? const Color(0xFF2E7D32) : const Color(0xFF6D4C41)),
+              const SizedBox(width: 4),
+              _Pill(emoji: '🏠', text: '${state.subscribers}', color: state.overloaded ? const Color(0xFFE65100) : const Color(0xFF37474F)),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Row(
             children: [
-              _Chip(
-                text: state.nationalOn ? 'الوطنية: جاية' : 'الوطنية: طافية',
-                color: state.nationalOn ? const Color(0xFF2E7D32) : const Color(0xFF6D4C41),
-              ),
+              const Text('🎯', style: TextStyle(fontSize: 14)),
               const SizedBox(width: 6),
-              _Chip(
-                text: 'الحمل ${state.load}/${state.capacityAmps} أمبير',
-                color: state.overloaded ? const Color(0xFFE65100) : const Color(0xFF37474F),
-              ),
-              const SizedBox(width: 6),
-              _Chip(text: 'المشتركين ${state.subscribers}/${GameState.houseCount}', color: const Color(0xFF37474F)),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0x33FFC107),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFFFFC107)),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.flag, size: 16, color: Color(0xFFFFC107)),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    m == null ? 'خلصت كل المهام! صرت أكبر صاحب مولدة بالزگاق 🏆' : 'المهمة: ${m.title}',
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                    overflow: TextOverflow.ellipsis,
-                  ),
+              Expanded(
+                child: Text(
+                  m == null ? 'خلصت كل المهام 🏆' : m.title,
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFFFE082)),
+                  overflow: TextOverflow.ellipsis,
                 ),
-                if (m != null)
-                  Text('🎁 ${fmt(m.reward)}', style: const TextStyle(fontSize: 11, color: Color(0xFFFFE082))),
-              ],
-            ),
+              ),
+              if (m != null) Text('🎁${fmt(m.reward)}', style: const TextStyle(fontSize: 11, color: Colors.white60)),
+            ],
           ),
         ],
       ),
     );
   }
+}
+
+class _IconMeter extends StatelessWidget {
+  final String emoji;
+  final double value;
+  final Color color;
+  const _IconMeter({required this.emoji, required this.value, required this.color});
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+        child: Row(
+          children: [
+            Text(emoji, style: const TextStyle(fontSize: 15)),
+            const SizedBox(width: 3),
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(
+                  value: value.clamp(0, 1).toDouble(),
+                  minHeight: 9,
+                  color: color,
+                  backgroundColor: Colors.white12,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+}
+
+class _Pill extends StatelessWidget {
+  final String emoji;
+  final String text;
+  final Color color;
+  const _Pill({required this.emoji, required this.text, required this.color});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+        decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(10)),
+        child: Text('$emoji$text', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+      );
 }
 
 class _SmallButton extends StatelessWidget {
@@ -754,72 +872,91 @@ class _BottomBar extends StatelessWidget {
     final s = state;
     final expensive = s.ampPrice > GameState.fairPrice + 3000;
     return Container(
-      margin: const EdgeInsets.all(8),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(color: _panel, borderRadius: BorderRadius.circular(16)),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      margin: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(colors: [Color(0xEE1B2437), Color(0xEE121826)]),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Row(
         children: [
-          Row(
-            children: [
-              const Text('سعر الأمبير:'),
-              IconButton(onPressed: () => s.changePrice(-1000), icon: const Icon(Icons.remove_circle_outline)),
-              Text(fmt(s.ampPrice),
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: expensive ? const Color(0xFFEF5350) : Colors.white,
-                  )),
-              IconButton(onPressed: () => s.changePrice(1000), icon: const Icon(Icons.add_circle_outline)),
-              const Spacer(),
-              Text(expensive ? 'غالي! الناس تترك' : 'المعقول ${fmt(GameState.fairPrice)}',
-                  style: TextStyle(fontSize: 11, color: expensive ? const Color(0xFFEF5350) : Colors.white60)),
-            ],
+          // سعر الأمبير
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            decoration: BoxDecoration(
+              color: expensive ? const Color(0x55E53935) : const Color(0xFF263042),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _Round(icon: Icons.remove, onTap: () => s.changePrice(-1000)),
+                    Text('${(s.ampPrice / 1000).round()}k',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: expensive ? const Color(0xFFFF8A80) : Colors.white)),
+                    _Round(icon: Icons.add, onTap: () => s.changePrice(1000)),
+                  ],
+                ),
+                Text(expensive ? 'غالي 😠' : '⚡ الأمبير', style: const TextStyle(fontSize: 10, color: Colors.white70)),
+              ],
+            ),
           ),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              Expanded(
-                child: _ActionButton(
-                  icon: s.running ? Icons.power_settings_new : Icons.play_arrow,
-                  label: s.running ? 'طفّي' : 'شغّل',
-                  onTap: s.toggleRunning,
-                  highlight: !s.running,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: _ActionButton(
-                  icon: Icons.local_gas_station,
-                  label: 'كاز 100 لتر\n${fmt(s.fuelPrice * 100)}',
-                  onTap: s.buyFuel,
-                  highlight: s.fuel < 60,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: _ActionButton(
-                  icon: Icons.build,
-                  label: 'صيانة\n${fmt(GameState.maintenanceCost)}',
-                  onTap: s.maintain,
-                  highlight: s.health < 40 && !s.broken,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: _ActionButton(
-                  icon: Icons.upgrade,
-                  label: s.upgradeCost == 0 ? 'أكبر مولدة' : 'طوّر\n${fmt(s.upgradeCost)}',
-                  onTap: s.upgrade,
-                  highlight: s.upgradeCost > 0 && s.money >= s.upgradeCost,
-                ),
-              ),
-            ],
+          const SizedBox(width: 6),
+          Expanded(
+            child: _ActionButton(
+              icon: s.running ? Icons.power_settings_new : Icons.play_arrow,
+              label: s.running ? 'طفّي' : 'شغّل',
+              onTap: s.toggleRunning,
+              highlight: !s.running,
+            ),
+          ),
+          const SizedBox(width: 5),
+          Expanded(
+            child: _ActionButton(
+              icon: Icons.local_gas_station,
+              label: '⛽ ${(s.fuelPrice * 100 / 1000).round()}k',
+              onTap: s.buyFuel,
+              highlight: s.fuel < 80,
+            ),
+          ),
+          const SizedBox(width: 5),
+          Expanded(
+            child: _ActionButton(
+              icon: Icons.build,
+              label: '${(GameState.maintenanceCost / 1000).round()}k',
+              onTap: s.maintain,
+              highlight: s.health < 40 && !s.broken,
+            ),
+          ),
+          const SizedBox(width: 5),
+          Expanded(
+            child: _ActionButton(
+              icon: Icons.upgrade,
+              label: s.upgradeCost == 0 ? 'MAX' : '${(s.upgradeCost / 1000000).toStringAsFixed(1)}M',
+              onTap: s.upgrade,
+              highlight: s.upgradeCost > 0 && s.money >= s.upgradeCost,
+            ),
           ),
         ],
       ),
     );
   }
+}
+
+class _Round extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  const _Round({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: Padding(padding: const EdgeInsets.all(6), child: Icon(icon, size: 18)),
+      );
 }
 
 class _ActionButton extends StatelessWidget {
@@ -885,7 +1022,323 @@ class _AlarmBanner extends StatelessWidget {
   }
 }
 
-// ---------------- لعبة التصليح ----------------
+// ---------------- لعبة تعبئة الكاز ----------------
+class _PumpGame extends StatefulWidget {
+  final GameState state;
+  const _PumpGame({super.key, required this.state});
+
+  @override
+  State<_PumpGame> createState() => _PumpGameState();
+}
+
+class _PumpGameState extends State<_PumpGame> {
+  static const _seconds = 6.0;
+  Timer? _timer;
+  double _left = _seconds;
+  double _fill = 0;
+  bool _done = false;
+  int _taps = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      if (!mounted || _done) return;
+      setState(() {
+        _left -= 0.1;
+        if (_left <= 0) _finish();
+      });
+    });
+  }
+
+  void _tap() {
+    if (_done) return;
+    widget.state.sfx('pump');
+    setState(() {
+      _taps++;
+      _fill = min(1.0, _fill + 0.055);
+      if (_fill >= 1) _finish();
+    });
+  }
+
+  void _finish() {
+    if (_done) return;
+    _done = true;
+    _timer?.cancel();
+    final fast = _fill >= 1 && _left > 0;
+    Future.delayed(const Duration(milliseconds: 500), () => widget.state.finishPump(_fill, fast));
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _Dim(
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1B2333),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: const Color(0xFFFFB300), width: 2),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('⛽ عبّي الكاز!', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFFFFB300))),
+            const SizedBox(height: 4),
+            Text(_done ? (_fill >= 1 ? 'مليان! 🔥 خصم 15%' : '${(_fill * 100).round()} لتر') : 'طگ بسرعة!',
+                style: const TextStyle(fontSize: 15)),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // الخزان
+                Container(
+                  width: 90,
+                  height: 160,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF263238),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: Colors.white38, width: 3),
+                  ),
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 120),
+                      height: 154 * _fill,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        gradient: const LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Color(0xFFFFD54F), Color(0xFFFF8F00)],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 20),
+                Column(
+                  children: [
+                    Text('${_left.clamp(0, _seconds).toStringAsFixed(1)}s',
+                        style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: _left < 2 ? const Color(0xFFEF5350) : Colors.white)),
+                    const SizedBox(height: 12),
+                    GestureDetector(
+                      onTapDown: (_) => _tap(),
+                      child: AnimatedScale(
+                        scale: _taps.isEven ? 1 : 0.92,
+                        duration: const Duration(milliseconds: 80),
+                        child: Container(
+                          width: 110,
+                          height: 110,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: RadialGradient(colors: [Color(0xFFFFB74D), Color(0xFFE65100)]),
+                          ),
+                          child: const Center(child: Text('⛽\nطگ!', textAlign: TextAlign.center, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold))),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------- ضربات جزاء ويه الجهال ----------------
+class _PenaltyGame extends StatefulWidget {
+  final GameState state;
+  const _PenaltyGame({super.key, required this.state});
+
+  @override
+  State<_PenaltyGame> createState() => _PenaltyGameState();
+}
+
+class _PenaltyGameState extends State<_PenaltyGame> with SingleTickerProviderStateMixin {
+  late final AnimationController _anim;
+  final _results = <bool>[];
+  double _shotX = 0; // من -1 لـ 1
+  double _ballT = 0; // 0 بالأرض، 1 وصلت الهدف
+  bool _shooting = false;
+  bool _done = false;
+  double _keeperX = 0;
+
+  double get _aimX => sin(_anim.value * 2 * pi * 1.0) * 0.95;
+
+  @override
+  void initState() {
+    super.initState();
+    _anim = AnimationController(vsync: this, duration: const Duration(milliseconds: 1600))..repeat();
+    _anim.addListener(() {
+      if (!mounted) return;
+      setState(() {
+        if (!_shooting) {
+          _keeperX = sin(_anim.value * 2 * pi * 1.6 + 1) * 0.7;
+        } else {
+          _ballT = min(1.0, _ballT + 0.06);
+          if (_ballT >= 1) _resolve();
+        }
+      });
+    });
+  }
+
+  void _shoot() {
+    if (_shooting || _done) return;
+    widget.state.sfx('kick');
+    _shooting = true;
+    _ballT = 0;
+    _shotX = _aimX;
+  }
+
+  void _resolve() {
+    _shooting = false;
+    final goal = (_shotX - _keeperX).abs() > 0.3;
+    _results.add(goal);
+    widget.state.sfx(goal ? 'goal' : 'miss');
+    if (_results.length >= 3) {
+      _done = true;
+      final goals = _results.where((g) => g).length;
+      Future.delayed(const Duration(milliseconds: 900), () => widget.state.finishFootball(goals));
+    }
+  }
+
+  @override
+  void dispose() {
+    _anim.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _Dim(
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1B5E20),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: Colors.white, width: 2),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text('⚽ ', style: TextStyle(fontSize: 20)),
+                for (var k = 0; k < 3; k++)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Text(k < _results.length ? (_results[k] ? '✅' : '❌') : '⚪', style: const TextStyle(fontSize: 22)),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            AspectRatio(
+              aspectRatio: 1.1,
+              child: CustomPaint(
+                painter: _PitchPainter(aim: _aimX, keeper: _keeperX, shotX: _shotX, ballT: _ballT, shooting: _shooting),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: Colors.white, foregroundColor: const Color(0xFF1B5E20), padding: const EdgeInsets.all(14)),
+                onPressed: _done ? null : _shoot,
+                child: Text(_done ? '🎉' : 'شوت! ⚽', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PitchPainter extends CustomPainter {
+  final double aim, keeper, shotX, ballT;
+  final bool shooting;
+  _PitchPainter({required this.aim, required this.keeper, required this.shotX, required this.ballT, required this.shooting});
+
+  @override
+  void paint(Canvas c, Size size) {
+    final w = size.width, h = size.height;
+    // عشب مخطط
+    for (var k = 0; k < 8; k++) {
+      c.drawRect(Rect.fromLTWH(0, h * k / 8, w, h / 8), Paint()..color = k.isEven ? const Color(0xFF2E7D32) : const Color(0xFF388E3C));
+    }
+    // الهدف
+    final goal = Rect.fromLTWH(w * 0.12, h * 0.08, w * 0.76, h * 0.32);
+    final net = Paint()
+      ..color = Colors.white24
+      ..strokeWidth = 1;
+    for (var x = goal.left; x <= goal.right; x += 10) {
+      c.drawLine(Offset(x, goal.top), Offset(x, goal.bottom), net);
+    }
+    for (var y = goal.top; y <= goal.bottom; y += 10) {
+      c.drawLine(Offset(goal.left, y), Offset(goal.right, y), net);
+    }
+    final post = Paint()
+      ..color = Colors.white
+      ..strokeWidth = 5
+      ..style = PaintingStyle.stroke;
+    c.drawPath(
+      Path()
+        ..moveTo(goal.left, goal.bottom)
+        ..lineTo(goal.left, goal.top)
+        ..lineTo(goal.right, goal.top)
+        ..lineTo(goal.right, goal.bottom),
+      post,
+    );
+    double gx(double v) => goal.center.dx + v * goal.width / 2;
+    // الحارس (جاهل)
+    final kx = gx(keeper);
+    c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(kx, goal.bottom - 30), width: 34, height: 44), const Radius.circular(10)),
+        Paint()..color = const Color(0xFFFFC107));
+    c.drawCircle(Offset(kx, goal.bottom - 60), 12, Paint()..color = const Color(0xFFE0B48A));
+    c.drawLine(Offset(kx - 17, goal.bottom - 40), Offset(kx - 34, goal.bottom - 55), Paint()
+      ..color = const Color(0xFFFFC107)
+      ..strokeWidth = 6
+      ..strokeCap = StrokeCap.round);
+    c.drawLine(Offset(kx + 17, goal.bottom - 40), Offset(kx + 34, goal.bottom - 55), Paint()
+      ..color = const Color(0xFFFFC107)
+      ..strokeWidth = 6
+      ..strokeCap = StrokeCap.round);
+    // سهم التنشين
+    if (!shooting) {
+      final ax = gx(aim);
+      c.drawLine(Offset(w / 2, h * 0.85), Offset(ax, goal.center.dy), Paint()
+        ..color = const Color(0xAAFFFFFF)
+        ..strokeWidth = 3);
+      c.drawCircle(Offset(ax, goal.center.dy), 10, Paint()
+        ..color = const Color(0xFFFF5252)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3);
+    }
+    // الطوبة
+    final start = Offset(w / 2, h * 0.85);
+    final end = Offset(gx(shotX), goal.center.dy);
+    final b = shooting ? Offset.lerp(start, end, ballT)! : start;
+    final r = shooting ? 14 - 6 * ballT : 14.0;
+    c.drawCircle(b.translate(0, 6), r * 0.8, Paint()..color = const Color(0x55000000));
+    c.drawCircle(b, r, Paint()..color = Colors.white);
+    c.drawCircle(b, r * 0.4, Paint()..color = Colors.black);
+  }
+
+  @override
+  bool shouldRepaint(covariant _PitchPainter old) => true;
+}
+
+// ---------------- لعبة التصليح ----------------// ---------------- لعبة التصليح ----------------
 class _FixGame extends StatefulWidget {
   final GameState state;
   const _FixGame({super.key, required this.state});
@@ -1165,12 +1618,12 @@ class _Tutorial extends StatelessWidget {
   const _Tutorial({required this.state});
 
   static const _steps = [
-    ('هلا بيك يا صاحب المولدة! 👋', 'هذي محلتك: زگاقين وشارع عام، والمولدة الخضرة بالزگاق هي رزقك. الشبابيك تضوي إذا وصلتهم كهرباءك.', Alignment.center),
-    ('امشِ بالمحلة 🚶', 'استعمل عصا التحكم الصفرة يسار الشاشة حتى تمشي. الكاميرا تلحگك، ودير بالك من السيارات بالشارع!', Alignment(0, -0.3)),
-    ('ادخل البيوت 🚪', 'لما تقرب من بيت يطلع زر "ادخل". جوه تكتب لصاحب البيت شتريد ويردلك: تطالبه بالدين، تقنعه يشترك، تبيعه أمبيرات.\nوعندك واجبات 📋 بالمحلة: توصيل، تصليح واير، زيارات.\nوبالجايخانة تشرب جاي وتسمع أخبار المحلة ☕', Alignment.center),
-    ('الأرقام والأزرار', 'فوك: فلوسك، الكاز، حالة المولدة، رضا الناس، والمهمة.\nتحت: سعر الأمبير، كاز، صيانة، تطوير.', Alignment.center),
-    ('خليك منتبه! ⚡', 'لما تنقطع الوطنية عندك 5 ثواني تشغّل المولدة.\nإذا طلع حرامي 🦹 على عمود، اركض لعنده تمسكه.\nوالأسهم على حافة الشاشة تدلك وين الشغلة.', Alignment.center),
-    ('آخر كل شهر 🪙', 'تطلع عملات فوك البيوت. امشِ لعند كل بيت حتى تاخذ فلوسه قبل ما يخلص العداد ويهرب!\nيلا، الله وياك 🎯', Alignment.center),
+    ('أهلاً يا صاحب المولدة! ⚡', '🏘️ هذي محلتك\n🟩 المولدة رزقك\n💡 الشبابيك تضوي من كهرباءك', Alignment.center),
+    ('🕹️ امشِ واركض', 'العصا الصفرة = تمشي\n🏃 زر الركض = أسرع', Alignment(0, -0.3)),
+    ('🦹 الحرامي!', 'يطلع على عمود ويهرب\nاركض وراه ولزمه 👮', Alignment.center),
+    ('🚪 ادخل البيوت', 'احچي ويه الناس\n💵 دين  🤝 اشتراك  ⚡ أمبيرات', Alignment.center),
+    ('⚽ 📋 ⛽', 'العب ويه الجهال\nسوّي الواجبات\nعبّي الكاز بسرعة', Alignment.center),
+    ('🪙 آخر الشهر', 'امشِ لعند العملات واجمعها\n⭐ اصعد مستويات!', Alignment.center),
   ];
 
   @override
