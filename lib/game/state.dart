@@ -742,6 +742,16 @@ class GameState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// من بطاقة البيت: الدين يتطالب وجهاً لوجه
+  void collectDebt(int i) {
+    if (nearHouse == i) {
+      enterHouse(i);
+    } else {
+      showToast('امشِ لبيت ${houses[i].owner} وادخل طالبه وجهاً لوجه 🚪');
+      notifyListeners();
+    }
+  }
+
   void tapHouse(int i) {
     if (houses[i].pending > 0) {
       if (_dist(housePos(i)) < 2.2) {
