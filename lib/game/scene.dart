@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'dart:ui' as ui;
 
 import 'package:flame/components.dart' show PositionComponent, HasGameReference, Vector2;
 import 'package:flame/events.dart' show TapCallbacks, TapDownEvent;
@@ -39,6 +40,12 @@ class _Walker {
   _Walker(this.x, this.lane, this.dir, this.speed, this.look, {this.minX = -1.5, this.maxX = 8.5});
 }
 
+class _Filler {
+  final double gx, gy;
+  final int seed;
+  _Filler(this.gx, this.gy, this.seed);
+}
+
 class _Cat {
   double x, y, dx, dy, turn = 0;
   final int color;
@@ -69,6 +76,12 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
   late final List<_Cat> _cats;
   late final List<Offset> _stars;
   final Map<String, TextPainter> _tpCache = {};
+  final Map<String, ui.Image> _img = {};
+  final List<_Filler> _fillers = [];
+  static const _spriteNames = [
+    'house_1', 'house_2', 'house_3', 'house_4', 'house_5', 'house_6',
+    'generator', 'tea_house', 'mosque', 'bakery', 'shop', 'palm',
+  ];
   double _puffTimer = 0;
   double _bakeryTimer = 0;
   double tw = 90, th = 45;
@@ -100,6 +113,28 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
       _Walker(3, 6.9, 1, 0.65, PersonLook.kid),
     ];
     _cats = [_Cat(0.5, 3.9, 0xFFFF9800), _Cat(6.5, 7.2, 0xFF424242)];
+    // الصور الحقيقية إذا موجودة
+    for (final n in _spriteNames) {
+      try {
+        _img[n] = await game.images.load('$n.png');
+      } catch (_) {}
+    }
+    // بنايات تملي أطراف المدينة حتى ما يبقى فراغ
+    var seed = 11;
+    void row(double gy, double from, double to) {
+      for (var gx = from; gx <= to; gx += 1) {
+        _fillers.add(_Filler(gx, gy, seed++));
+      }
+    }
+    row(-1.6, -5, 13);
+    row(-2.8, -5, 13);
+    row(9.3, -5, 13);
+    row(10.5, -5, 13);
+    for (final gx in [-2.5, -3.7, 9.6, 10.8]) {
+      for (final gy in [0.0, 1.0, 2.0, 3.0, 4.0, 7.0, 8.0]) {
+        _fillers.add(_Filler(gx, gy, seed++));
+      }
+    }
     size = game.size.clone();
     camX = state.px;
     camY = state.py;
@@ -223,6 +258,7 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
 
     _sky(c);
     _ground(c);
+    _shadows(c);
 
     final items = <MapEntry<double, void Function()>>[];
     for (var i = 0; i < GameState.houseCount; i++) {
@@ -239,6 +275,13 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
     items.add(MapEntry(GameState.bakeryPos.dx + GameState.bakeryPos.dy, () => _bakery(c)));
     for (final p in _palms) {
       items.add(MapEntry(p.dx + p.dy, () => _palm(c, p)));
+    }
+    for (final f in _fillers) {
+      items.add(MapEntry(f.gx + f.gy, () => _filler(c, f)));
+    }
+    for (var k = 0; k < GameState.shops.length; k++) {
+      final sp = GameState.shops[k];
+      items.add(MapEntry(sp.dx + sp.dy, () => _shop(c, k)));
     }
     for (final car in _cars) {
       items.add(MapEntry(car.x + car.lane, () => _car(c, car)));
@@ -261,6 +304,7 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
     _smoke(c);
     _thief(c);
     _bubbles(c);
+    _questMarks(c);
     _carHonks(c);
     _sunMoon(c);
     _edgeMarkers(c);
@@ -430,6 +474,132 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
 
   bool _offscreen(Offset p) => p.dx < -tw * 1.5 || p.dx > size.x + tw * 1.5 || p.dy < -tw * 2 || p.dy > size.y + tw;
 
+  /// يرسم صورة حقيقية رجلها على [base] (الزاوية الگدامية للبناية). يرجع false إذا ماكو صورة
+  bool _spr(Canvas c, String key, Offset base, double width) {
+    final img = _img[key];
+    if (img == null) return false;
+    final h = width * img.height / img.width;
+    final dst = Rect.fromLTWH(base.dx - width / 2, base.dy - h, width, h);
+    final k = (0.4 + 0.6 * _light).clamp(0.0, 1.0);
+    final v = (255 * k).round();
+    c.drawImageRect(
+      img,
+      Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
+      dst,
+      Paint()
+        ..filterQuality = FilterQuality.medium
+        ..colorFilter = ColorFilter.mode(Color.fromARGB(255, v, v, (v * 1.05).clamp(0, 255).round()), BlendMode.modulate),
+    );
+    return true;
+  }
+
+  void _shadows(Canvas c) {
+    if (_light < 0.25) return;
+    final p = Paint()..color = Color.fromARGB((40 * _light).round(), 0, 0, 0);
+    void sh(double gx, double gy, double size) {
+      final o = iso(gx + 0.3, gy - 0.05);
+      if (_offscreen(o)) return;
+      c.drawPath(_diamond(o, tw * size, th * size), p);
+    }
+
+    for (var i = 0; i < GameState.houseCount; i++) {
+      final g = GameState.housePos(i);
+      sh(g.dx, g.dy, 0.9);
+    }
+    for (final f in _fillers) {
+      sh(f.gx, f.gy, 0.9);
+    }
+    for (final b in [GameState.teaPos, GameState.mosquePos, GameState.bakeryPos, ...GameState.shops]) {
+      sh(b.dx, b.dy, 0.95);
+    }
+  }
+
+  // خطوط طابوق خفيفة على الجدران
+  void _bricks(Canvas c, double gx, double gy, double l, double height) {
+    final p = Paint()
+      ..color = const Color(0x16000000)
+      ..strokeWidth = 1;
+    final n = (height / (tw * 0.06)).floor();
+    for (var k = 1; k < n; k++) {
+      final v = height * k / n;
+      c.drawLine(_onLeftFace(gx, gy, l, l, 0, v), _onLeftFace(gx, gy, l, l, 1, v), p);
+      c.drawLine(_onRightFace(gx, gy, l, l, 0, v), _onRightFace(gx, gy, l, l, 1, v), p);
+    }
+  }
+
+  void _filler(Canvas c, _Filler f) {
+    final base = iso(f.gx, f.gy);
+    if (_offscreen(base)) return;
+    const l = 0.84;
+    final r = Random(f.seed);
+    if (_spr(c, 'house_${f.seed % 6 + 1}', iso(f.gx + l / 2, f.gy + l / 2), tw * 1.12)) return;
+    final height = tw * (0.55 + r.nextDouble() * 0.55);
+    final col = _brick[f.seed % _brick.length];
+    _prism(c, f.gx, f.gy, l, l, height, _shade(col, 1.05), _shade(col, 0.86), _shade(col, 0.68));
+    _bricks(c, f.gx, f.gy, l, height);
+    Offset onL(double u, double v) => _onLeftFace(f.gx, f.gy, l, l, u, v);
+    Offset onR(double u, double v) => _onRightFace(f.gx, f.gy, l, l, u, v);
+    final floors = (height / (tw * 0.3)).floor().clamp(1, 3);
+    for (var fl = 0; fl < floors; fl++) {
+      final v1 = height * (0.2 + fl * 0.75 / floors), v2 = v1 + height * 0.14;
+      for (final u in [0.15, 0.6]) {
+        final on = _light < 0.5 && r.nextDouble() < (state.nationalOn ? 0.8 : 0.35);
+        final col2 = on ? const Color(0xFFFFD25A) : const Color(0xFF2B2B35);
+        c.drawPath(_quad(onL, u, u + 0.22, v1, v2), Paint()..color = col2);
+        c.drawPath(_quad(onR, u, u + 0.22, v1, v2), Paint()..color = col2);
+      }
+    }
+    _prism(c, f.gx - 0.2, f.gy - 0.15, 0.2, 0.2, tw * 0.09, _shade(0xFFEDEDED), _shade(0xFFCFCFCF), _shade(0xFFB0B0B0),
+        lift: height);
+  }
+
+  void _shop(Canvas c, int k) {
+    final g = GameState.shops[k];
+    if (_offscreen(iso(g.dx, g.dy))) return;
+    const lx = 0.85, ly = 0.85;
+    if (_spr(c, 'shop', iso(g.dx + lx / 2, g.dy + ly / 2), tw * 1.12)) {
+      _sign(c, g.dx, g.dy, lx, ly, tw * 0.45, GameState.shopNames[k], 0xFF37474F);
+      return;
+    }
+    const colors = [0xFFE57373, 0xFFFFF176, 0xFF81C784, 0xFF64B5F6, 0xFFFFB74D];
+    final h = tw * 0.52;
+    final col = [0xFFE0D2B8, 0xFFD9CBB0, 0xFFE6DCC8, 0xFFD2C2A4, 0xFFDDD0B6][k % 5];
+    _prism(c, g.dx, g.dy, lx, ly, h, _shade(col, 1.05), _shade(col, 0.9), _shade(col, 0.72));
+    Offset onL(double u, double v) => _onLeftFace(g.dx, g.dy, lx, ly, u, v);
+    // كبنك (باب محل حديد) مفتوح وبضاعة
+    final open = _light > 0.3;
+    c.drawPath(_quad(onL, 0.12, 0.88, 0, h * 0.55), Paint()..color = open ? _shade(0xFF3E2723) : _shade(0xFF90A4AE));
+    if (open) {
+      for (var j = 0; j < 4; j++) {
+        final m = onL(0.22 + j * 0.18, h * 0.2);
+        c.drawRect(Rect.fromCenter(center: m, width: tw * 0.07, height: tw * 0.07), Paint()..color = _shade(colors[(k + j) % 5]));
+      }
+    } else {
+      for (var j = 1; j < 6; j++) {
+        c.drawLine(onL(0.12, h * 0.55 * j / 6), onL(0.88, h * 0.55 * j / 6), Paint()..color = _shade(0xFF607D8B));
+      }
+    }
+    _sign(c, g.dx, g.dy, lx, ly, h * 0.78, GameState.shopNames[k], [0xFFB71C1C, 0xFF1B5E20, 0xFF0D47A1, 0xFF4A148C, 0xFFE65100][k]);
+  }
+
+  Offset? _questTarget(Quest q) {
+    if (q.type == QuestType.delivery && !q.picked) {
+      final src = q.from == 0 ? GameState.bakeryPos : GameState.teaPos;
+      return iso(src.dx, src.dy).translate(0, -tw * 0.9);
+    }
+    return _roofPoint(q.house).translate(0, -tw * 0.6);
+  }
+
+  void _questMarks(Canvas c) {
+    for (final q in state.quests) {
+      final t = _questTarget(q);
+      if (t == null) continue;
+      final p = t.translate(0, sin(state.clock * 4) * 4);
+      c.drawCircle(p, 14, Paint()..color = const Color(0xEE1E88E5));
+      _text(c, q.type == QuestType.fixWire ? '🔧' : (q.type == QuestType.visit ? '🚪' : '📦'), p, 13, Colors.white);
+    }
+  }
+
   void _house(Canvas c, int i) {
     final h = state.houses[i];
     final g = GameState.housePos(i);
@@ -437,7 +607,20 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
     const s = 0.82;
     final height = _hHeight(i);
     final col = _brick[i % _brick.length];
+    if (_spr(c, 'house_${i % 6 + 1}', iso(g.dx + s / 2, g.dy + s / 2), tw * 1.12)) {
+      final rd = iso(g.dx, g.dy);
+      if (state.houseLit(h) && _light < 0.5) {
+        c.drawCircle(rd.translate(0, -height * 0.4), tw * 0.35, Paint()..color = const Color(0x33FFD25A));
+      }
+      if (h.wireCut) _text(c, '✂️', rd.translate(0, -height - tw * 0.1), 14, Colors.white);
+      if (state.selected == i) {
+        c.drawPath(_diamond(rd, tw * s, th * s),
+            Paint()..color = const Color(0xFFFF9800)..style = PaintingStyle.stroke..strokeWidth = 3);
+      }
+      return;
+    }
     _prism(c, g.dx, g.dy, s, s, height, _shade(col, 1.08), _shade(col, 0.88), _shade(col, 0.7));
+    _bricks(c, g.dx, g.dy, s, height);
     Offset onL(double u, double v) => _onLeftFace(g.dx, g.dy, s, s, u, v);
     Offset onR(double u, double v) => _onRightFace(g.dx, g.dy, s, s, u, v);
 
@@ -552,6 +735,21 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
     }
     final shake = state.generating ? sin(state.clock * 70) * 0.008 : 0.0;
     final l = 0.62 * scale, height = tw * 0.32 * scale;
+    if (_img.containsKey('generator')) {
+      final gpos = iso(gp.dx + l / 2 + shake, gp.dy + l / 2);
+      _spr(c, 'generator', gpos, tw * 0.95 * scale);
+      final p = iso(gp.dx + shake, gp.dy);
+      _exhaust = p.translate(tw * 0.12, -height - tw * 0.2);
+      _genTop = p.translate(-tw * 0.1, -height);
+      c.drawCircle(p.translate(tw * 0.2, -height * 0.3), tw * 0.035,
+          Paint()..color = state.broken ? const Color(0xFFE53935) : (!state.generating ? const Color(0xFF9E9E9E) : (state.overloaded ? const Color(0xFFFF9800) : const Color(0xFF43A047))));
+      _text(c, 'مولدة المحلة', p.translate(0, th * 0.75), max(9.0, tw * 0.11), _shade(0xFFFFFFFF), bold: true);
+      if (state.alarm > 0 && (state.clock * 5).floor().isEven) {
+        c.drawPath(_diamond(p, tw * l * 1.4, th * l * 1.4),
+            Paint()..color = const Color(0xFFFF1744)..style = PaintingStyle.stroke..strokeWidth = 4);
+      }
+      return;
+    }
     final body = state.broken ? 0xFF6A3A3A : 0xFF3E6B48;
     final gx = gp.dx + shake;
     _prism(c, gx, gp.dy, l, l, height, _shade(body, 1.15), _shade(body, 0.9), _shade(body, 0.7));
@@ -616,6 +814,7 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
     if (_offscreen(iso(g.dx, g.dy))) return;
     const lx = 0.95, ly = 0.85;
     final h = tw * 0.55;
+    if (_spr(c, 'tea_house', iso(g.dx + lx / 2, g.dy + ly / 2), tw * 1.2)) return;
     _prism(c, g.dx, g.dy, lx, ly, h, _shade(0xFFEFE3C8), _shade(0xFFE0CFA8), _shade(0xFFC9B58C));
     Offset onL(double u, double v) => _onLeftFace(g.dx, g.dy, lx, ly, u, v);
     c.drawPath(_quad(onL, 0.35, 0.65, 0, h * 0.55), Paint()..color = _light < 0.5 ? const Color(0xFFFFB74D) : _shade(0xFF6D4C41));
@@ -653,6 +852,7 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
     if (_offscreen(iso(g.dx, g.dy))) return;
     const lx = 1.1, ly = 0.95;
     final h = tw * 0.5;
+    if (_spr(c, 'mosque', iso(g.dx + lx / 2, g.dy + ly / 2), tw * 1.4)) return;
     _prism(c, g.dx, g.dy, lx, ly, h, _shade(0xFFF3EFE6), _shade(0xFFE8E1D2), _shade(0xFFCFC6B3));
     Offset onL(double u, double v) => _onLeftFace(g.dx, g.dy, lx, ly, u, v);
     for (final u in [0.2, 0.5, 0.8]) {
@@ -679,6 +879,7 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
     if (_offscreen(iso(g.dx, g.dy))) return;
     const lx = 0.95, ly = 0.85;
     final h = tw * 0.5;
+    if (_spr(c, 'bakery', iso(g.dx + lx / 2, g.dy + ly / 2), tw * 1.2)) return;
     _prism(c, g.dx, g.dy, lx, ly, h, _shade(0xFFD7B899), _shade(0xFFC9A882), _shade(0xFFAE8E6A));
     Offset onL(double u, double v) => _onLeftFace(g.dx, g.dy, lx, ly, u, v);
     c.drawPath(_quad(onL, 0.15, 0.55, h * 0.15, h * 0.6), Paint()..color = const Color(0xFFFF7043));
@@ -690,6 +891,7 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
   void _palm(Canvas c, Offset g) {
     final base = iso(g.dx, g.dy);
     if (_offscreen(base)) return;
+    if (_spr(c, 'palm', base, tw * 0.9)) return;
     final top = base.translate(tw * 0.05, -tw * 1.1);
     final trunk = Paint()
       ..color = _shade(0xFF8D6E63)
@@ -979,6 +1181,10 @@ class AlleyScene extends PositionComponent with TapCallbacks, HasGameReference<F
       if (state.houses[i].pending > 0) marker(_coinPos(i), '🪙', const Color(0xDDFFA000));
     }
     if (state.alarm > 0) marker(iso(GameState.genPos.dx, GameState.genPos.dy), '⚡', const Color(0xDDFF1744));
+    for (final q in state.quests) {
+      final t = _questTarget(q);
+      if (t != null) marker(t, '📋', const Color(0xDD1E88E5));
+    }
   }
 
   // ---------- اللمس ----------

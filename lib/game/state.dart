@@ -25,6 +25,8 @@ class House {
   int lastChat = -1;
   int lastOffer = -1;
   int lastDebtAsk = -1;
+  bool wireCut = false; // الحرامي گص الواير
+  final List<(bool, String)> chatLog = []; // (آني؟، الكلام)
 
   House({
     required this.name,
@@ -52,6 +54,7 @@ class House {
         'rate': rate,
         'max': maxPrice,
         'pending': pending,
+        'cut': wireCut,
       };
 
   factory House.fromJson(Map<String, dynamic> j) => House(
@@ -63,7 +66,9 @@ class House {
         debt: (j['debt'] as num).toInt(),
         lazy: (j['lazy'] as num).toDouble(),
         rate: (j['rate'] as num).toDouble(),
-      )..pending = (j['pending'] as num?)?.toInt() ?? 0;
+      )
+        ..pending = (j['pending'] as num?)?.toInt() ?? 0
+        ..wireCut = j['cut'] as bool? ?? false;
 }
 
 class MonthReport {
@@ -80,6 +85,32 @@ class Mission {
   final int reward;
   final bool Function(GameState s) done;
   const Mission(this.title, this.reward, this.done);
+}
+
+enum QuestType { delivery, fixWire, visit }
+
+/// واجب صغير بالمحلة
+class Quest {
+  final QuestType type;
+  final int house;
+  final String item; // للتوصيل: صمون، جاي...
+  final int from; // للتوصيل: 0 فرن، 1 جايخانة
+  final int reward;
+  int daysLeft;
+  bool picked = false;
+  Quest(this.type, this.house, this.reward, {this.item = '', this.from = 0, this.daysLeft = 3});
+
+  String title(List<House> hs) {
+    final o = hs[house].owner;
+    switch (type) {
+      case QuestType.delivery:
+        return picked ? 'وصّل $item لـ $o' : 'جيب $item من ${from == 0 ? 'الفرن' : 'الجايخانة'} لـ $o';
+      case QuestType.fixWire:
+        return 'صلّح واير $o (گصّه الحرامي)';
+      case QuestType.visit:
+        return '$o يريد يشوفك، ادخل بيته';
+    }
+  }
 }
 
 /// كل منطق اللعبة هنا، والرسم والواجهة يقرون منه
@@ -105,6 +136,10 @@ class GameState extends ChangeNotifier {
   static const Offset teaPos = Offset(1, 8);
   static const Offset mosquePos = Offset(3.5, 8);
   static const Offset bakeryPos = Offset(6, 8);
+  // محلات زيادة بالشارع (للزينة)
+  static const List<Offset> shops = [Offset(-0.2, 8), Offset(2.2, 8), Offset(4.9, 8), Offset(7.2, 8), Offset(8.4, 8)];
+  static const List<String> shopNames = ['قصاب الخير', 'أسواق المحلة', 'صيدلية الشفاء', 'حلاق الشباب', 'كهربائي سلام'];
+  static const int aiDailyLimit = 60;
   static const double minX = -1.6, maxX = 8.6, minY = -0.9, maxY = 7.45;
 
   static final List<Mission> missions = [
@@ -114,6 +149,7 @@ class GameState extends ChangeNotifier {
     Mission('اشرب جاي بالجايخانة واسمع الأخبار', 30000, (s) => s.teas > 0),
     Mission('اقنع واحد يشترك وياك (ادخل بيته)', 100000, (s) => s.convinced > 0),
     Mission('امسك حرامي واير', 75000, (s) => s.thievesCaught > 0),
+    Mission('خلّص 3 واجبات 📋', 100000, (s) => s.questsDone >= 3),
     Mission('شغّل المولدة بسرعة لما تنقطع الوطنية', 75000, (s) => s.alarmsSaved > 0),
     Mission('وصّل 10 مشتركين', 200000, (s) => s.subscribers >= 10),
     Mission('طوّر المولدة لـ 100 أمبير', 300000, (s) => s.genLevel >= 2),
@@ -158,6 +194,10 @@ class GameState extends ChangeNotifier {
   int chats = 0;
   int teas = 0;
   int convinced = 0;
+  int questsDone = 0;
+  final List<Quest> quests = [];
+  int aiCount = 0;
+  int aiStamp = -1;
   bool collecting = false; // آخر الشهر: ننتظر اللاعب يجمع العملات
   bool fixing = false; // لعبة تصليح المولدة مفتوحة
   int? visiting; // رقم البيت اللي داخله، أو -1 للجايخانة
@@ -207,7 +247,7 @@ class GameState extends ChangeNotifier {
   bool get overlayOpen => currentEvent != null || report != null || fixing || visiting != null || tutorialActive;
   bool get paused => overlayOpen || collecting;
   bool get generating => running && !broken && fuel > 0;
-  bool houseLit(House h) => nationalOn || (h.subscribed && generating);
+  bool houseLit(House h) => nationalOn || (h.subscribed && generating && !h.wireCut);
   bool priceTooHigh(House h) => ampPrice * h.rate > h.maxPrice;
   int get load => houses.where((h) => h.subscribed).fold(0, (a, h) => a + h.amps);
   double get effectiveLoad => nationalOn ? load * 0.3 : load.toDouble();
@@ -238,6 +278,16 @@ class GameState extends ChangeNotifier {
   }
 
   bool get nearTea => _dist(teaPos) < 1.2;
+  bool get nearBakery => _dist(bakeryPos) < 1.2;
+  /// واجب تصليح واير لبيت قريب
+  Quest? get nearFix {
+    final n = nearHouse;
+    if (n == null) return null;
+    for (final q in quests) {
+      if (q.type == QuestType.fixWire && q.house == n) return q;
+    }
+    return null;
+  }
   bool get nearGenerator => _dist(genPos) < 1.2;
 
   @override
@@ -264,7 +314,7 @@ class GameState extends ChangeNotifier {
       if (inBox(housePos(i), 0.56)) return true;
     }
     if (inBox(genPos, 0.6)) return true;
-    for (final b in [teaPos, mosquePos, bakeryPos]) {
+    for (final b in [teaPos, mosquePos, bakeryPos, ...shops]) {
       if (inBox(b, 0.6)) return true;
     }
     return false;
@@ -357,6 +407,7 @@ class GameState extends ChangeNotifier {
     for (final h in houses) {
       if (h.requestTime > 0) h.requestTime -= dt;
     }
+    _tickQuests();
     if (alarm > 0) {
       if (generating || nationalOn) {
         alarm = 0;
@@ -384,11 +435,73 @@ class GameState extends ChangeNotifier {
       thiefTime -= dt;
       if (thiefTime <= 0) {
         thiefTime = 0;
-        penalty(75000);
-        showToast('الحرامي بالواير وهرب! خسرت 75,000');
+        penalty(40000);
+        final victims = [
+          for (var i = 0; i < houseCount; i++)
+            if (houses[i].subscribed && !houses[i].wireCut && !quests.any((q) => q.house == i)) i
+        ];
+        if (victims.isNotEmpty) {
+          final v = victims[_rnd.nextInt(victims.length)];
+          houses[v].wireCut = true;
+          houses[v].say('انگص الواير! 😱');
+          quests.add(Quest(QuestType.fixWire, v, 10000, daysLeft: 2));
+          showToast('الحرامي گص واير ${houses[v].owner} وهرب! روح صلّحه 🔧');
+        } else {
+          showToast('الحرامي بالواير وهرب! خسرت 40,000');
+        }
         notifyListeners();
       }
     }
+  }
+
+  void _tickQuests() {
+    for (final q in List.of(quests)) {
+      if (q.type != QuestType.delivery) continue;
+      if (!q.picked) {
+        final src = q.from == 0 ? bakeryPos : teaPos;
+        if (_dist(src) < 1.3) {
+          q.picked = true;
+          showToast('أخذت ${q.item} 🛍️ هسه وصّله لـ ${houses[q.house].owner}');
+          notifyListeners();
+        }
+      } else if (_dist(housePos(q.house)) < 1.2) {
+        _completeQuest(q, '${houses[q.house].owner}: تسلم إيدك! 🙏');
+      }
+    }
+  }
+
+  void _completeQuest(Quest q, String msg) {
+    quests.remove(q);
+    questsDone++;
+    earn(q.reward);
+    satisfaction = min(100.0, satisfaction + 3);
+    houses[q.house].say('تسلم! 🙏');
+    showToast('📋 خلص الواجب: $msg\n+${fmt(q.reward)} د.ع');
+    notifyListeners();
+  }
+
+  void _spawnQuest() {
+    if (quests.length >= 3) return;
+    final busy = quests.map((q) => q.house).toSet();
+    final free = [for (var i = 0; i < houseCount; i++) if (!busy.contains(i)) i];
+    if (free.isEmpty) return;
+    final h = free[_rnd.nextInt(free.length)];
+    if (_rnd.nextBool()) {
+      final fromTea = _rnd.nextDouble() < 0.4;
+      final item = fromTea ? 'جاي' : _pick(['صمون حار', 'كيس صمون', 'خبز تنور']);
+      quests.add(Quest(QuestType.delivery, h, 15000 + _rnd.nextInt(3) * 5000, item: item, from: fromTea ? 1 : 0));
+    } else {
+      quests.add(Quest(QuestType.visit, h, 20000));
+    }
+    showToast('📋 واجب جديد: ${quests.last.title(houses)}');
+  }
+
+  /// زر "صلّح الواير"
+  void fixWire() {
+    final q = nearFix;
+    if (q == null) return;
+    houses[q.house].wireCut = false;
+    _completeQuest(q, 'رجعت الكهرباء لبيت ${houses[q.house].owner} 💡');
   }
 
   House? _randomSub() {
@@ -498,6 +611,18 @@ class GameState extends ChangeNotifier {
         }
       }
     }
+
+    // الواجبات: تنتهي إذا تأخرت، وتجي جديدة
+    for (final q in List.of(quests)) {
+      q.daysLeft--;
+      if (q.daysLeft <= 0) {
+        quests.remove(q);
+        satisfaction -= 4;
+        if (q.type == QuestType.fixWire) houses[q.house].wireCut = false;
+        if (events) showToast('📋 فات وكت الواجب: ${q.title(houses)} 😞');
+      }
+    }
+    if (events && _rnd.nextDouble() < 0.6) _spawnQuest();
 
     // حدث عشوائي
     if (events && currentEvent == null && _rnd.nextDouble() < 0.25) {
@@ -802,7 +927,77 @@ class GameState extends ChangeNotifier {
     moveY = 0;
     selected = null;
     visiting = i;
+    if (i >= 0) {
+      for (final q in List.of(quests)) {
+        if (q.type == QuestType.visit && q.house == i) _completeQuest(q, '${houses[i].owner} فرح بزيارتك');
+      }
+    }
     notifyListeners();
+  }
+
+  // ---------- المحادثة الحرة ----------
+  /// كم رسالة ذكاء اصطناعي باقية اليوم (حد حتى ما يخلص المفتاح المجاني)
+  bool useAiQuota() {
+    final today = DateTime.now().day + DateTime.now().month * 100;
+    if (aiStamp != today) {
+      aiStamp = today;
+      aiCount = 0;
+    }
+    if (aiCount >= aiDailyLimit) return false;
+    aiCount++;
+    return true;
+  }
+
+  /// سياق صاحب البيت يروح للذكاء الاصطناعي
+  Map<String, dynamic> npcContext(int i) {
+    final h = houses[i];
+    return {
+      'owner': h.owner,
+      'place': h.name,
+      'subscribed': h.subscribed,
+      'amps': h.amps,
+      'debt': h.debt,
+      'price': ampPrice,
+      'maxPrice': h.maxPrice,
+      'lit': houseLit(h),
+      'satisfaction': satisfaction.round(),
+      'national': nationalOn,
+      'wireCut': h.wireCut,
+    };
+  }
+
+  /// نطبّق قرار صاحب البيت بعد المحادثة (مع تحقق حتى ما ينغش)
+  String? applyNpcAction(int i, String action) {
+    final h = houses[i];
+    String? note;
+    switch (action) {
+      case 'pay_debt':
+        if (h.debt > 0) {
+          note = '💵 دفع ${fmt(h.debt)} د.ع';
+          earn(h.debt);
+          h.debt = 0;
+        }
+      case 'subscribe':
+        if (!h.subscribed && !priceTooHigh(h)) {
+          h.subscribed = true;
+          convinced++;
+          note = '🤝 اشترك بـ ${h.amps} أمبير';
+        }
+      case 'buy_amps':
+        if (h.subscribed) {
+          final extra = 1 + _rnd.nextInt(2);
+          h.amps += extra;
+          note = '⚡ زاد $extra أمبير';
+        }
+      case 'happy':
+        satisfaction = min(100.0, satisfaction + 1.5);
+      case 'angry':
+        satisfaction = max(0.0, satisfaction - 2);
+        note = '😠 زعل';
+    }
+    chats++;
+    notifyListeners();
+    return note;
   }
 
   void enterTea() => enterHouse(-1);
@@ -953,6 +1148,7 @@ class GameState extends ChangeNotifier {
         'chats': chats,
         'teas': teas,
         'convinced': convinced,
+        'quests': questsDone,
         'px': px,
         'py': py,
         'houses': houses.map((h) => h.toJson()).toList(),
@@ -992,6 +1188,7 @@ class GameState extends ChangeNotifier {
     chats = gi('chats', 0);
     teas = gi('teas', 0);
     convinced = gi('convinced', 0);
+    questsDone = gi('quests', 0);
     px = gd('px', 3.5);
     py = gd('py', 2.3);
     if (_blocked(px, py)) {
