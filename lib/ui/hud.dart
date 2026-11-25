@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
+import '../game/npc_chat.dart';
 import '../game/people.dart';
 import '../game/state.dart';
 
@@ -32,6 +33,8 @@ class GameHud extends StatelessWidget {
               Positioned(left: 16, right: 16, top: topInset + 262, child: _CollectBanner(state: state)),
             if (state.alarm > 0 && playing)
               Positioned(left: 16, right: 16, top: topInset + 262, child: _AlarmBanner(state: state)),
+            if (playing && state.quests.isNotEmpty && state.selected == null && !state.collecting && state.alarm <= 0)
+              Positioned(right: 10, top: topInset + 262, child: _QuestList(state: state)),
             if (state.toast != null && !state.tutorialActive)
               Positioned(
                 top: topInset + 212,
@@ -54,6 +57,33 @@ class GameHud extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+// ---------------- الواجبات ----------------
+class _QuestList extends StatelessWidget {
+  final GameState state;
+  const _QuestList({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 230),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(color: const Color(0xCC0D47A1), borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('📋 الواجبات', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+          for (final q in state.quests)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text('• ${q.title(state.houses)} (${q.daysLeft} يوم)', style: const TextStyle(fontSize: 11)),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -135,7 +165,11 @@ class _ContextButton extends StatelessWidget {
     String? label;
     VoidCallback? onTap;
     final near = state.nearHouse;
-    if (near != null) {
+    final fix = state.nearFix;
+    if (fix != null) {
+      label = '🔧 صلّح\nالواير';
+      onTap = state.fixWire;
+    } else if (near != null) {
       final h = state.houses[near];
       label = '🚪 ادخل\n${h.owner}';
       onTap = () => state.enterHouse(near);
@@ -175,29 +209,78 @@ class _Interior extends StatefulWidget {
 
 class _InteriorState extends State<_Interior> with SingleTickerProviderStateMixin {
   late final AnimationController _anim;
-  late String _line;
+  final _input = TextEditingController();
+  final _scroll = ScrollController();
+  final List<(int, String)> _teaLog = []; // للجايخانة: 0 آني، 1 هو، 2 ملاحظة
+  bool _waiting = false;
 
   GameState get s => widget.state;
   bool get _tea => widget.index < 0;
+  House? get _house => _tea ? null : s.houses[widget.index];
 
   @override
   void initState() {
     super.initState();
     _anim = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat();
-    _line = _tea ? 'هلا بيك يا أبو المولدة! تفضل اگعد، جاي لو حامض؟ ☕' : s.greet(widget.index);
+    if (_tea) {
+      _teaLog.add((1, 'هلا بيك يا أبو المولدة! تفضل اگعد، جاي لو حامض؟ ☕'));
+    } else if (_house!.chatLog.isEmpty) {
+      _house!.chatLog.add((false, s.greet(widget.index)));
+    }
   }
 
   @override
   void dispose() {
     _anim.dispose();
+    _input.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
-  void _say(String Function() f) => setState(() => _line = f());
+  void _toBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scroll.hasClients) _scroll.animateTo(_scroll.position.maxScrollExtent, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+    });
+  }
+
+  Future<void> _send(String text) async {
+    text = text.trim();
+    if (text.isEmpty || _waiting) return;
+    _input.clear();
+    if (_tea) {
+      setState(() {
+        _teaLog.add((0, text));
+        _teaLog.add((1, text.contains('جاي') || text.contains('چاي') ? s.drinkTea() : 'هلا عيني، اطلب جاي وأحچيلك أخبار المحلة ☕'));
+      });
+      _toBottom();
+      return;
+    }
+    final h = _house!;
+    final history = List.of(h.chatLog);
+    setState(() {
+      h.chatLog.add((true, text));
+      _waiting = true;
+    });
+    _toBottom();
+    final reply = await NpcChat.send(
+      context: s.npcContext(widget.index),
+      history: history,
+      message: text,
+      aiAllowed: s.useAiQuota(),
+    );
+    if (!mounted) return;
+    final note = s.applyNpcAction(widget.index, reply.action);
+    setState(() {
+      h.chatLog.add((false, reply.text));
+      if (note != null) h.chatLog.add((false, '— $note —'));
+      _waiting = false;
+    });
+    _toBottom();
+  }
 
   PersonLook _ownerLook() {
     if (_tea) return PersonLook.oldMan;
-    final o = s.houses[widget.index].owner;
+    final o = _house!.owner;
     if (o.contains('أم') || o.contains('الحجية')) return PersonLook.abaya;
     if (o.contains('الدكتور')) return PersonLook.doctor;
     if (o.contains('الحاج') || o.contains('الشيخ')) return PersonLook.shemagh;
@@ -205,19 +288,45 @@ class _InteriorState extends State<_Interior> with SingleTickerProviderStateMixi
     return widget.index.isEven ? PersonLook.shemagh : PersonLook.dishdasha;
   }
 
+  Widget _bubble(bool me, String text) {
+    final note = text.startsWith('— ');
+    if (note) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Text(text, style: const TextStyle(color: Color(0xFFFFC107), fontWeight: FontWeight.bold)),
+        ),
+      );
+    }
+    return Align(
+      alignment: me ? AlignmentDirectional.centerStart : AlignmentDirectional.centerEnd,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        constraints: const BoxConstraints(maxWidth: 280),
+        decoration: BoxDecoration(
+          color: me ? const Color(0xFFE8892B) : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Text(text, style: TextStyle(color: me ? Colors.white : Colors.black87, fontSize: 15, height: 1.4)),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final house = _tea ? null : s.houses[widget.index];
-    final name = _tea ? 'أبو علي (صاحب الجايخانة)' : house!.owner;
-    final lit = _tea ? true : s.houseLit(house!);
-    final options = <(String, VoidCallback)>[
-      if (_tea) ('اشرب جاي (1,000) ☕', () => _say(s.drinkTea)),
-      if (!_tea) ('سولف وياه 💬', () => _say(() => s.chat(widget.index))),
-      if (!_tea && house!.debt > 0) ('طالبه بالدين 💵', () => _say(() => s.askDebt(widget.index))),
-      if (!_tea && !house!.subscribed) ('اقنعه يشترك 🤝', () => _say(() => s.offerSub(widget.index))),
-      if (!_tea && house!.subscribed) ('تبيعه أمبيرات ⚡', () => _say(() => s.offerAmps(widget.index))),
-      ('مع السلامة 👋', s.leave),
-    ];
+    final h = _house;
+    final lit = _tea ? true : s.houseLit(h!);
+    final List<(bool, String)> log =
+        _tea ? [for (final m in _teaLog) (m.$1 == 0, m.$2)] : h!.chatLog;
+    final quick = _tea
+        ? ['جيبلي جاي ☕', 'شكو ماكو بالمحلة؟']
+        : [
+            'شلونكم؟ الكهرباء زينة؟',
+            if (h!.debt > 0) 'حجي، عليك دين ${fmt(h!.debt)}',
+            if (!h!.subscribed) 'تشترك وياي؟ أوصلك ${h!.amps} أمبير',
+            if (h!.subscribed) 'تريد أمبيرات زيادة؟',
+          ];
     return Positioned.fill(
       child: ColoredBox(
         color: const Color(0xFF0E1320),
@@ -225,58 +334,103 @@ class _InteriorState extends State<_Interior> with SingleTickerProviderStateMixi
           child: Column(
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+                padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
                 child: Row(
                   children: [
+                    IconButton(onPressed: s.leave, icon: const Icon(Icons.arrow_forward)),
                     Expanded(
-                      child: Text(_tea ? 'جايخانة أبو علي' : house!.name,
-                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: _accent)),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(_tea ? 'جايخانة أبو علي' : h!.name,
+                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _accent)),
+                          Text(
+                            _tea
+                                ? 'جاي بـ 1,000 وأخبار المحلة'
+                                : '${h!.subscribed ? 'مشترك ${h!.amps} أمبير' : 'مو مشترك'}${h!.debt > 0 ? ' · عليه ${fmt(h!.debt)}' : ''}',
+                            style: const TextStyle(color: Colors.white60, fontSize: 12),
+                          ),
+                        ],
+                      ),
                     ),
                     if (!_tea)
-                      Text(house!.subscribed ? 'مشترك ${house!.amps} أمبير' : 'مو مشترك',
-                          style: const TextStyle(color: Colors.white70)),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(color: const Color(0xFF263042), borderRadius: BorderRadius.circular(10)),
+                        child: Text(
+                          NpcChat.aiLabel,
+                          style: const TextStyle(fontSize: 11, color: Colors.white70),
+                        ),
+                      ),
                   ],
                 ),
               ),
-              Expanded(
+              SizedBox(
+                height: 200,
                 child: AnimatedBuilder(
                   animation: _anim,
                   builder: (context, _) => CustomPaint(
                     size: Size.infinite,
-                    painter: _RoomPainter(
-                      tea: _tea,
-                      lit: lit,
-                      t: _anim.value,
-                      owner: _ownerLook(),
-                      seed: widget.index + 3,
-                    ),
+                    painter: _RoomPainter(tea: _tea, lit: lit, t: _anim.value, owner: _ownerLook(), seed: widget.index + 3),
                   ),
                 ),
               ),
-              Container(
-                margin: const EdgeInsets.all(12),
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+              Expanded(
+                child: ListView(
+                  controller: _scroll,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   children: [
-                    Text(name, style: const TextStyle(color: Color(0xFFBF360C), fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 4),
-                    Text(_line, style: const TextStyle(color: Colors.black87, fontSize: 16, height: 1.5)),
+                    for (final m in log) _bubble(m.$1, m.$2),
+                    if (_waiting)
+                      const Align(
+                        alignment: AlignmentDirectional.centerEnd,
+                        child: Padding(
+                          padding: EdgeInsets.all(8),
+                          child: Text('يكتب... ✍️', style: TextStyle(color: Colors.white54)),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              SizedBox(
+                height: 40,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  children: [
+                    for (final q in quick)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: ActionChip(label: Text(q, style: const TextStyle(fontSize: 12)), onPressed: () => _send(q)),
+                      ),
                   ],
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  alignment: WrapAlignment.center,
+                padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
+                child: Row(
                   children: [
-                    for (final o in options) FilledButton(onPressed: o.$2, child: Text(o.$1)),
+                    Expanded(
+                      child: TextField(
+                        controller: _input,
+                        textInputAction: TextInputAction.send,
+                        onSubmitted: _send,
+                        maxLength: 200,
+                        decoration: InputDecoration(
+                          counterText: '',
+                          hintText: _tea ? 'احچي ويه أبو علي...' : 'اكتب لـ ${h!.owner}...',
+                          filled: true,
+                          fillColor: const Color(0xFF1B2333),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    IconButton.filled(
+                      onPressed: _waiting ? null : () => _send(_input.text),
+                      icon: const Icon(Icons.send),
+                    ),
                   ],
                 ),
               ),
@@ -1013,7 +1167,7 @@ class _Tutorial extends StatelessWidget {
   static const _steps = [
     ('هلا بيك يا صاحب المولدة! 👋', 'هذي محلتك: زگاقين وشارع عام، والمولدة الخضرة بالزگاق هي رزقك. الشبابيك تضوي إذا وصلتهم كهرباءك.', Alignment.center),
     ('امشِ بالمحلة 🚶', 'استعمل عصا التحكم الصفرة يسار الشاشة حتى تمشي. الكاميرا تلحگك، ودير بالك من السيارات بالشارع!', Alignment(0, -0.3)),
-    ('ادخل البيوت 🚪', 'لما تقرب من بيت يطلع زر "ادخل" يمين. تدخل وتسولف ويه صاحب البيت، تطالبه بالدين، تقنعه يشترك، أو تبيعه أمبيرات.\nوبالجايخانة تشرب جاي وتسمع أخبار المحلة ☕', Alignment.center),
+    ('ادخل البيوت 🚪', 'لما تقرب من بيت يطلع زر "ادخل". جوه تكتب لصاحب البيت شتريد ويردلك: تطالبه بالدين، تقنعه يشترك، تبيعه أمبيرات.\nوعندك واجبات 📋 بالمحلة: توصيل، تصليح واير، زيارات.\nوبالجايخانة تشرب جاي وتسمع أخبار المحلة ☕', Alignment.center),
     ('الأرقام والأزرار', 'فوك: فلوسك، الكاز، حالة المولدة، رضا الناس، والمهمة.\nتحت: سعر الأمبير، كاز، صيانة، تطوير.', Alignment.center),
     ('خليك منتبه! ⚡', 'لما تنقطع الوطنية عندك 5 ثواني تشغّل المولدة.\nإذا طلع حرامي 🦹 على عمود، اركض لعنده تمسكه.\nوالأسهم على حافة الشاشة تدلك وين الشغلة.', Alignment.center),
     ('آخر كل شهر 🪙', 'تطلع عملات فوك البيوت. امشِ لعند كل بيت حتى تاخذ فلوسه قبل ما يخلص العداد ويهرب!\nيلا، الله وياك 🎯', Alignment.center),
