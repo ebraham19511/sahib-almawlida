@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
+import '../game/people.dart';
 import '../game/state.dart';
 
 const _panel = Color(0xE6121826);
@@ -14,21 +15,28 @@ class GameHud extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final topInset = MediaQuery.paddingOf(context).top;
     return AnimatedBuilder(
       animation: state,
-      builder: (context, _) => Stack(
-        children: [
-          Positioned(top: 0, left: 0, right: 0, child: SafeArea(child: _TopBar(state: state))),
-          Positioned(left: 0, right: 0, bottom: 0, child: SafeArea(child: _BottomBar(state: state))),
-          if (state.selected != null && !state.collecting && state.alarm <= 0)
-            Positioned(left: 12, right: 12, bottom: 200, child: _InfoCard(state: state)),
-          if (state.collecting) Positioned(left: 16, right: 16, bottom: 200, child: _CollectBanner(state: state)),
-          if (state.toast != null && !state.tutorialActive)
-            Positioned(
-              top: 215,
-              left: 24,
-              right: 24,
-              child: SafeArea(
+      builder: (context, _) {
+        final playing = !state.overlayOpen;
+        return Stack(
+          children: [
+            Positioned(top: 0, left: 0, right: 0, child: SafeArea(child: _TopBar(state: state))),
+            Positioned(left: 0, right: 0, bottom: 0, child: SafeArea(child: _BottomBar(state: state))),
+            if (playing) Positioned(left: 10, bottom: 205, child: _Joystick(key: const ValueKey('joy'), state: state)),
+            if (playing) Positioned(right: 10, bottom: 225, child: _ContextButton(state: state)),
+            if (state.selected != null && !state.collecting && state.alarm <= 0)
+              Positioned(left: 12, right: 12, top: topInset + 262, child: _InfoCard(state: state)),
+            if (state.collecting && playing)
+              Positioned(left: 16, right: 16, top: topInset + 262, child: _CollectBanner(state: state)),
+            if (state.alarm > 0 && playing)
+              Positioned(left: 16, right: 16, top: topInset + 262, child: _AlarmBanner(state: state)),
+            if (state.toast != null && !state.tutorialActive)
+              Positioned(
+                top: topInset + 212,
+                left: 24,
+                right: 24,
                 child: Center(
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -37,17 +45,375 @@ class GameHud extends StatelessWidget {
                   ),
                 ),
               ),
+            if (state.visiting != null && !state.tutorialActive)
+              _Interior(key: ValueKey('visit${state.visiting}'), state: state, index: state.visiting!),
+            if (state.currentEvent != null && !state.tutorialActive) _EventOverlay(state: state),
+            if (state.fixing && !state.tutorialActive) _FixGame(key: const ValueKey('fix'), state: state),
+            if (state.report != null && !state.tutorialActive) _ReportOverlay(state: state),
+            if (state.tutorialActive) _Tutorial(state: state),
+          ],
+        );
+      },
+    );
+  }
+}
+
+// ---------------- عصا التحكم ----------------
+class _Joystick extends StatefulWidget {
+  final GameState state;
+  const _Joystick({super.key, required this.state});
+
+  @override
+  State<_Joystick> createState() => _JoystickState();
+}
+
+class _JoystickState extends State<_Joystick> {
+  static const double _r = 55;
+  Offset _knob = Offset.zero;
+
+  void _update(Offset local) {
+    var v = local - const Offset(_r, _r);
+    if (v.distance > _r) v = v / v.distance * _r;
+    setState(() => _knob = v);
+    final x = v.dx / _r, y = v.dy / _r;
+    if (v.distance < 8) {
+      widget.state.setMove(0, 0);
+    } else {
+      widget.state.setMove(x, y);
+    }
+  }
+
+  void _end() {
+    setState(() => _knob = Offset.zero);
+    widget.state.setMove(0, 0);
+  }
+
+  @override
+  void dispose() {
+    widget.state.setMove(0, 0);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onPanStart: (d) => _update(d.localPosition),
+      onPanUpdate: (d) => _update(d.localPosition),
+      onPanEnd: (_) => _end(),
+      onPanCancel: _end,
+      child: Container(
+        width: _r * 2,
+        height: _r * 2,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: const Color(0x55000000),
+          border: Border.all(color: Colors.white38, width: 2),
+        ),
+        child: Center(
+          child: Transform.translate(
+            offset: _knob,
+            child: Container(
+              width: 46,
+              height: 46,
+              decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xCCFFC107)),
+              child: const Icon(Icons.directions_walk, color: Colors.black87),
             ),
-          if (state.alarm > 0 && !state.overlayOpen)
-            Positioned(left: 16, right: 16, bottom: 200, child: _AlarmBanner(state: state)),
-          if (state.currentEvent != null && !state.tutorialActive) _EventOverlay(state: state),
-          if (state.fixing && !state.tutorialActive) _FixGame(key: const ValueKey('fix'), state: state),
-          if (state.report != null && !state.tutorialActive) _ReportOverlay(state: state),
-          if (state.tutorialActive) _Tutorial(state: state),
-        ],
+          ),
+        ),
       ),
     );
   }
+}
+
+// ---------------- زر "ادخل" حسب مكانك ----------------
+class _ContextButton extends StatelessWidget {
+  final GameState state;
+  const _ContextButton({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    String? label;
+    VoidCallback? onTap;
+    final near = state.nearHouse;
+    if (near != null) {
+      final h = state.houses[near];
+      label = '🚪 ادخل\n${h.owner}';
+      onTap = () => state.enterHouse(near);
+    } else if (state.nearTea) {
+      label = '☕ ادخل\nالجايخانة';
+      onTap = state.enterTea;
+    } else if (state.nearGenerator) {
+      label = '⚙️ شوف\nالمولدة';
+      onTap = () => state.select(-1);
+    }
+    if (label == null) return const SizedBox.shrink();
+    return Material(
+      color: _accent,
+      borderRadius: BorderRadius.circular(18),
+      elevation: 6,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------- داخل البيت أو الجايخانة ----------------
+class _Interior extends StatefulWidget {
+  final GameState state;
+  final int index; // -1 = الجايخانة
+  const _Interior({super.key, required this.state, required this.index});
+
+  @override
+  State<_Interior> createState() => _InteriorState();
+}
+
+class _InteriorState extends State<_Interior> with SingleTickerProviderStateMixin {
+  late final AnimationController _anim;
+  late String _line;
+
+  GameState get s => widget.state;
+  bool get _tea => widget.index < 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _anim = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat();
+    _line = _tea ? 'هلا بيك يا أبو المولدة! تفضل اگعد، جاي لو حامض؟ ☕' : s.greet(widget.index);
+  }
+
+  @override
+  void dispose() {
+    _anim.dispose();
+    super.dispose();
+  }
+
+  void _say(String Function() f) => setState(() => _line = f());
+
+  PersonLook _ownerLook() {
+    if (_tea) return PersonLook.oldMan;
+    final o = s.houses[widget.index].owner;
+    if (o.contains('أم') || o.contains('الحجية')) return PersonLook.abaya;
+    if (o.contains('الدكتور')) return PersonLook.doctor;
+    if (o.contains('الحاج') || o.contains('الشيخ')) return PersonLook.shemagh;
+    if (o.contains('ستار') || o.contains('حيدر') || o.contains('جاسم')) return PersonLook.dishdasha;
+    return widget.index.isEven ? PersonLook.shemagh : PersonLook.dishdasha;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final house = _tea ? null : s.houses[widget.index];
+    final name = _tea ? 'أبو علي (صاحب الجايخانة)' : house!.owner;
+    final lit = _tea ? true : s.houseLit(house!);
+    final options = <(String, VoidCallback)>[
+      if (_tea) ('اشرب جاي (1,000) ☕', () => _say(s.drinkTea)),
+      if (!_tea) ('سولف وياه 💬', () => _say(() => s.chat(widget.index))),
+      if (!_tea && house!.debt > 0) ('طالبه بالدين 💵', () => _say(() => s.askDebt(widget.index))),
+      if (!_tea && !house!.subscribed) ('اقنعه يشترك 🤝', () => _say(() => s.offerSub(widget.index))),
+      if (!_tea && house!.subscribed) ('تبيعه أمبيرات ⚡', () => _say(() => s.offerAmps(widget.index))),
+      ('مع السلامة 👋', s.leave),
+    ];
+    return Positioned.fill(
+      child: ColoredBox(
+        color: const Color(0xFF0E1320),
+        child: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(_tea ? 'جايخانة أبو علي' : house!.name,
+                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: _accent)),
+                    ),
+                    if (!_tea)
+                      Text(house!.subscribed ? 'مشترك ${house!.amps} أمبير' : 'مو مشترك',
+                          style: const TextStyle(color: Colors.white70)),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: AnimatedBuilder(
+                  animation: _anim,
+                  builder: (context, _) => CustomPaint(
+                    size: Size.infinite,
+                    painter: _RoomPainter(
+                      tea: _tea,
+                      lit: lit,
+                      t: _anim.value,
+                      owner: _ownerLook(),
+                      seed: widget.index + 3,
+                    ),
+                  ),
+                ),
+              ),
+              Container(
+                margin: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(name, style: const TextStyle(color: Color(0xFFBF360C), fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    Text(_line, style: const TextStyle(color: Colors.black87, fontSize: 16, height: 1.5)),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    for (final o in options) FilledButton(onPressed: o.$2, child: Text(o.$1)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RoomPainter extends CustomPainter {
+  final bool tea;
+  final bool lit;
+  final double t;
+  final PersonLook owner;
+  final int seed;
+  _RoomPainter({required this.tea, required this.lit, required this.t, required this.owner, required this.seed});
+
+  static const _walls = [0xFFE8D9C0, 0xFFD6E4E5, 0xFFF1E0D6, 0xFFE3E8D2, 0xFFE9DCEB];
+
+  @override
+  void paint(Canvas c, Size size) {
+    final w = size.width, h = size.height;
+    final floorY = h * 0.72;
+    final wall = tea ? 0xFFD7C4A3 : _walls[seed % _walls.length];
+    c.drawRect(Rect.fromLTWH(0, 0, w, floorY), Paint()..color = Color(wall));
+    c.drawRect(Rect.fromLTWH(0, floorY, w, h - floorY), Paint()..color = const Color(0xFF8D6E63));
+    // سجادة
+    final rug = Rect.fromLTWH(w * 0.12, floorY + 8, w * 0.76, (h - floorY) * 0.75);
+    c.drawRect(rug, Paint()..color = const Color(0xFFB71C1C));
+    c.drawRect(rug.deflate(6), Paint()
+      ..color = const Color(0xFFFFC107)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2);
+    for (var k = 0; k < 5; k++) {
+      final cx = rug.left + rug.width * (k + 0.5) / 5;
+      c.drawPath(
+        Path()
+          ..moveTo(cx, rug.top + 12)
+          ..lineTo(cx + 8, rug.center.dy)
+          ..lineTo(cx, rug.bottom - 12)
+          ..lineTo(cx - 8, rug.center.dy)
+          ..close(),
+        Paint()..color = const Color(0xFF1A237E),
+      );
+    }
+
+    if (tea) {
+      // سماور وطاولي وصور
+      final sam = Offset(w * 0.78, floorY - 10);
+      c.drawRect(Rect.fromLTWH(w * 0.68, floorY - 60, w * 0.25, 60), Paint()..color = const Color(0xFF6D4C41));
+      c.drawRRect(RRect.fromRectAndRadius(Rect.fromCenter(center: sam.translate(0, -85), width: 50, height: 60), const Radius.circular(14)),
+          Paint()..color = const Color(0xFFB0BEC5));
+      for (var k = 0; k < 4; k++) {
+        c.drawRect(Rect.fromLTWH(w * 0.7 + k * 16, floorY - 72, 9, 12), Paint()..color = const Color(0xFFBF360C));
+      }
+      for (var k = 0; k < 3; k++) {
+        final steam = sin(t * 2 * pi + k) * 4;
+        c.drawCircle(sam.translate(steam, -125 - k * 12.0), 6 - k.toDouble(), Paint()..color = const Color(0x66FFFFFF));
+      }
+      c.drawRect(Rect.fromLTWH(w * 0.1, h * 0.12, w * 0.18, h * 0.2), Paint()..color = const Color(0xFF5D4037));
+      c.drawRect(Rect.fromLTWH(w * 0.12, h * 0.14, w * 0.14, h * 0.16), Paint()..color = const Color(0xFF90A4AE));
+      final board = Rect.fromCenter(center: Offset(w * 0.3, floorY + 2), width: w * 0.22, height: 20);
+      c.drawRect(board, Paint()..color = const Color(0xFF795548));
+      drawPerson(c, Offset(w * 0.18, floorY + 30), w * 0.9, PersonLook.shemagh, sitting: true, face: 1);
+    } else {
+      // شباك وستارة
+      final win = Rect.fromLTWH(w * 0.08, h * 0.1, w * 0.26, h * 0.3);
+      c.drawRect(win, Paint()..color = lit ? const Color(0xFF90CAF9) : const Color(0xFF263238));
+      c.drawRect(Rect.fromLTWH(win.left - 6, win.top - 6, win.width * 0.35, win.height + 12), Paint()..color = const Color(0xFF7B1FA2));
+      c.drawRect(Rect.fromLTWH(win.right - win.width * 0.3, win.top - 6, win.width * 0.35, win.height + 12),
+          Paint()..color = const Color(0xFF7B1FA2));
+      // سبلت وهواه
+      final ac = Rect.fromLTWH(w * 0.55, h * 0.08, w * 0.32, h * 0.09);
+      c.drawRRect(RRect.fromRectAndRadius(ac, const Radius.circular(8)), Paint()..color = Colors.white);
+      c.drawLine(Offset(ac.left + 8, ac.bottom - 6), Offset(ac.right - 8, ac.bottom - 6), Paint()
+        ..color = const Color(0xFF90A4AE)
+        ..strokeWidth = 2);
+      if (lit) {
+        for (var k = 0; k < 3; k++) {
+          final y = ac.bottom + 10 + ((t * 30 + k * 10) % 30);
+          c.drawLine(Offset(ac.left + 20 + k * 30, y), Offset(ac.left + 30 + k * 30, y + 6), Paint()
+            ..color = const Color(0x8890CAF9)
+            ..strokeWidth = 2);
+        }
+      }
+      // تلفزيون وقنفة
+      final tv = Rect.fromLTWH(w * 0.62, floorY - 95, w * 0.28, 60);
+      c.drawRect(Rect.fromLTWH(w * 0.6, floorY - 35, w * 0.32, 35), Paint()..color = const Color(0xFF5D4037));
+      c.drawRect(tv, Paint()..color = const Color(0xFF111111));
+      c.drawRect(tv.deflate(4), Paint()..color = lit ? Color.lerp(const Color(0xFF42A5F5), const Color(0xFF66BB6A), (sin(t * 2 * pi) + 1) / 2)! : const Color(0xFF212121));
+      final sofa = Rect.fromLTWH(w * 0.05, floorY - 45, w * 0.36, 45);
+      c.drawRRect(RRect.fromRectAndRadius(sofa, const Radius.circular(10)), Paint()..color = const Color(0xFF6A1B9A));
+      c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(sofa.left, sofa.top - 25, sofa.width, 30), const Radius.circular(10)),
+          Paint()..color = const Color(0xFF4A148C));
+      // ساعة حايط
+      c.drawCircle(Offset(w * 0.46, h * 0.15), 16, Paint()..color = Colors.white);
+      final ang = t * 2 * pi;
+      c.drawLine(Offset(w * 0.46, h * 0.15), Offset(w * 0.46 + cos(ang) * 11, h * 0.15 + sin(ang) * 11), Paint()
+        ..color = Colors.black
+        ..strokeWidth = 1.5);
+    }
+
+    // پنكة السقف
+    final fan = Offset(w * 0.5, 18);
+    c.drawLine(Offset(w * 0.5, 0), fan, Paint()
+      ..color = const Color(0xFF5D4037)
+      ..strokeWidth = 3);
+    final spin = lit ? t * 2 * pi * 3 : 0.3;
+    for (var k = 0; k < 3; k++) {
+      final a = spin + k * 2 * pi / 3;
+      final end = fan + Offset(cos(a) * 60, sin(a) * 8);
+      c.drawLine(fan, end, Paint()
+        ..color = const Color(0xFF795548)
+        ..strokeWidth = 8
+        ..strokeCap = StrokeCap.round);
+    }
+    // ضوية
+    if (lit) {
+      c.drawCircle(Offset(w * 0.5, 40), 40, Paint()..color = const Color(0x33FFF59D));
+    }
+
+    // صاحب البيت
+    drawPerson(c, Offset(w * 0.5, floorY + 40), w * 1.5, owner, face: -1, walkPhase: null);
+
+    // إذا الكهرباء طافية: ظلمة وفانوس
+    if (!lit) {
+      c.drawRect(Offset.zero & size, Paint()..color = const Color(0x99000000));
+      final lamp = Offset(w * 0.75, floorY - 20);
+      c.drawCircle(lamp, 70, Paint()..color = const Color(0x33FFB74D));
+      c.drawRect(Rect.fromCenter(center: lamp, width: 16, height: 24), Paint()..color = const Color(0xFFFFB74D));
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _RoomPainter old) => true;
 }
 
 // ---------------- الشريط العلوي ----------------
@@ -123,7 +489,7 @@ class _TopBar extends StatelessWidget {
                 color: state.overloaded ? const Color(0xFFE65100) : const Color(0xFF37474F),
               ),
               const SizedBox(width: 6),
-              _Chip(text: 'المشتركين ${state.subscribers}/10', color: const Color(0xFF37474F)),
+              _Chip(text: 'المشتركين ${state.subscribers}/${GameState.houseCount}', color: const Color(0xFF37474F)),
             ],
           ),
           const SizedBox(height: 8),
@@ -536,11 +902,11 @@ class _CollectBanner extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'آخر الشهر! اضغط العملات بسرعة قبل ما يهربون\nباقي ${fmt(state.pendingTotal)} د.ع',
+              'آخر الشهر! امشِ لعند العملات 🪙 قبل ما يهربون\nباقي ${fmt(state.pendingTotal)} د.ع',
               style: const TextStyle(fontSize: 13),
             ),
           ),
-          FilledButton(onPressed: state.collectAll, child: const Text('اجمع الكل')),
+          FilledButton(onPressed: state.collectAll, child: const Text('العامل يجمع\n(ياخذ 10%)', textAlign: TextAlign.center, style: TextStyle(fontSize: 11))),
         ],
       ),
     );
@@ -645,12 +1011,12 @@ class _Tutorial extends StatelessWidget {
   const _Tutorial({required this.state});
 
   static const _steps = [
-    ('هلا بيك يا صاحب المولدة! 👋', 'هذا زگاقك، والمولدة الخضرة بالنص هي رزقك. الأسلاك توصل للبيوت المشتركة، والشبابيك تضوي إذا وصلتهم الكهرباء.', Alignment.center),
-    ('الأرقام فوك ⬆️', 'فلوسك، والكاز، وحالة المولدة، ورضا الناس.\nإذا خلص الكاز تطفي المولدة والناس تزعل. وإذا الحالة نزلت، المولدة تعطل.', Alignment(0, 0.45)),
-    ('أزرارك تحت ⬇️', 'تشتري كاز، تسوي صيانة، تطوّر المولدة، وتحدد سعر الأمبير.\nانتبه: السعر الغالي يطلّع الناس، والرخيص ما يربّحك.', Alignment(0, -0.2)),
-    ('خليك منتبه! ⚡', 'لما تنقطع الوطنية عندك 5 ثواني تشغّل المولدة.\nإذا شفت حرامي 🦹 على عمود اضغط عليه بسرعة.\nوإذا طلع ⚡ أخضر فوك بيت، اضغطه حتى تبيعه أمبيرات زيادة.', Alignment.center),
-    ('آخر كل شهر 🪙', 'تطلع عملات فوك البيوت، اضغطها بسرعة قبل ما يخلص عدادها ويهرب صاحبها!\nوإذا عطلت المولدة تگدر تصلّحها بإيدك ببلاش.', Alignment.center),
-    ('يلا نبدي! 🎯', 'تابع المهمة بالشريط الأصفر فوك، وكل مهمة إلها جائزة.\nاضغط على أي بيت حتى تشوف تفاصيله، وزر ؟ يرجّعلك هذا الشرح.', Alignment.center),
+    ('هلا بيك يا صاحب المولدة! 👋', 'هذي محلتك: زگاقين وشارع عام، والمولدة الخضرة بالزگاق هي رزقك. الشبابيك تضوي إذا وصلتهم كهرباءك.', Alignment.center),
+    ('امشِ بالمحلة 🚶', 'استعمل عصا التحكم الصفرة يسار الشاشة حتى تمشي. الكاميرا تلحگك، ودير بالك من السيارات بالشارع!', Alignment(0, -0.3)),
+    ('ادخل البيوت 🚪', 'لما تقرب من بيت يطلع زر "ادخل" يمين. تدخل وتسولف ويه صاحب البيت، تطالبه بالدين، تقنعه يشترك، أو تبيعه أمبيرات.\nوبالجايخانة تشرب جاي وتسمع أخبار المحلة ☕', Alignment.center),
+    ('الأرقام والأزرار', 'فوك: فلوسك، الكاز، حالة المولدة، رضا الناس، والمهمة.\nتحت: سعر الأمبير، كاز، صيانة، تطوير.', Alignment.center),
+    ('خليك منتبه! ⚡', 'لما تنقطع الوطنية عندك 5 ثواني تشغّل المولدة.\nإذا طلع حرامي 🦹 على عمود، اركض لعنده تمسكه.\nوالأسهم على حافة الشاشة تدلك وين الشغلة.', Alignment.center),
+    ('آخر كل شهر 🪙', 'تطلع عملات فوك البيوت. امشِ لعند كل بيت حتى تاخذ فلوسه قبل ما يخلص العداد ويهرب!\nيلا، الله وياك 🎯', Alignment.center),
   ];
 
   @override
