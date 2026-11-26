@@ -27,6 +27,8 @@ jobs:
           flutter create . --platforms=android --org iq.almawlida --project-name sahib_almawlida
           rm -rf test
           sed -i 's/android:label="sahib_almawlida"/android:label="صاحب المولدة"/' android/app/src/main/AndroidManifest.xml
+          # رقم تطبيق AdMob (هسه رقم التجربة الرسمي، بدّله برقمك)
+          sed -i 's#</application>#<meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="ca-app-pub-3940256099942544~3347511713"/></application>#' android/app/src/main/AndroidManifest.xml
 
       # أيقونة التطبيق (إذا موجودة بالمشروع)
       - name: App icon
