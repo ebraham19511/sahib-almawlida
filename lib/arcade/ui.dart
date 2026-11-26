@@ -25,10 +25,26 @@ class ArcadeUI extends StatelessWidget {
             return Stack(fit: StackFit.expand, children: [
               _Hud(wd: wd),
               Center(
-                child: Text(
-                  wd.countdown > 0 ? '${wd.countdown.ceil()}' : 'يلا!',
-                  style: const TextStyle(fontSize: 110, fontWeight: FontWeight.w900, color: Colors.white, shadows: [
-                    Shadow(blurRadius: 20, color: Colors.black),
+                child: IgnorePointer(
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 26),
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                      decoration: BoxDecoration(color: _panel, borderRadius: BorderRadius.circular(22), border: Border.all(color: _gold, width: 2)),
+                      child: Column(children: [
+                        Text('المرحلة ${wd.level + 1}: ${wd.cfg.title}',
+                            textAlign: TextAlign.center, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: _gold)),
+                        const SizedBox(height: 8),
+                        Text(wd.cfg.tip, textAlign: TextAlign.center, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      ]),
+                    ),
+                    const SizedBox(height: 18),
+                    Text(
+                      wd.countdown > 0 ? '${wd.countdown.ceil()}' : 'يلا!',
+                      style: const TextStyle(fontSize: 100, fontWeight: FontWeight.w900, color: Colors.white, shadows: [
+                        Shadow(blurRadius: 20, color: Colors.black),
+                      ]),
+                    ),
                   ]),
                 ),
               ),
@@ -40,8 +56,33 @@ class ArcadeUI extends StatelessWidget {
                 const Positioned(
                   left: 0,
                   right: 0,
-                  bottom: 40,
-                  child: IgnorePointer(child: Center(child: _Bubble(text: '👆 اسحب بأي مكان وامشِ\n⚡ اركض للبيت الطافي'))),
+                  bottom: 60,
+                  child: IgnorePointer(child: Center(child: _Bubble(text: '👆 اسحب بأي مكان وامشِ\n⚡ اتبع الأسهم للبيت الطافي'))),
+                ),
+              if (wd.bannerT > 0 && wd.banner.isNotEmpty)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  top: Arena.topSpace + 34,
+                  child: IgnorePointer(
+                    child: Center(
+                      child: TweenAnimationBuilder<double>(
+                        key: ValueKey(wd.banner),
+                        tween: Tween(begin: 0.4, end: 1),
+                        duration: const Duration(milliseconds: 450),
+                        curve: Curves.elasticOut,
+                        builder: (_, v, child) => Transform.scale(scale: v, child: child),
+                        child: _Bubble(text: wd.banner),
+                      ),
+                    ),
+                  ),
+                ),
+              if (wd.overloadOn && wd.nearGenerator)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 70,
+                  child: Center(child: _CoolButton(onTap: wd.tapCool)),
                 ),
             ]);
           case Phase.paused:
@@ -126,13 +167,19 @@ class _LevelButton extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             open
-                ? Text('${index + 1}', style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w900))
+                ? Text('${index + 1}', style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900))
                 : const Icon(Icons.lock_rounded, size: 34, color: Colors.white38),
-            const SizedBox(height: 4),
+            if (open)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Text(levels[index].title,
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: Colors.white70)),
+              ),
+            const SizedBox(height: 2),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                for (var k = 0; k < 3; k++) Icon(Icons.star_rounded, size: 20, color: k < st ? _gold : Colors.white24),
+                for (var k = 0; k < 3; k++) Icon(Icons.star_rounded, size: 18, color: k < st ? _gold : Colors.white24),
               ],
             ),
           ],
@@ -322,5 +369,27 @@ class _Bubble extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
         decoration: BoxDecoration(color: _panel, borderRadius: BorderRadius.circular(20), border: Border.all(color: _gold)),
         child: Text(text, textAlign: TextAlign.center, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+      );
+}
+
+/// زر كبير للتبريد وقت الحمل الزائد
+class _CoolButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const _CoolButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: const Color(0xFF0288D1),
+        shape: const CircleBorder(side: BorderSide(color: Colors.white, width: 3)),
+        elevation: 10,
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: () {},
+          onTapDown: (_) => onTap(),
+          child: const Padding(
+            padding: EdgeInsets.all(26),
+            child: Text('❄️\nاضغط!', textAlign: TextAlign.center, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+          ),
+        ),
       );
 }

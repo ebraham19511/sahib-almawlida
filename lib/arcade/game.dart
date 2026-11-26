@@ -24,22 +24,25 @@ class ArcadeGame extends FlameGame {
   }
 
   @override
-  Color backgroundColor() => const Color(0xFF1E2A2F);
+  Color backgroundColor() => const Color(0xFF16222A);
 }
 
-/// الساحة: ترسم كلشي وتستلم السحب (عصا تحكم بأي مكان)
+/// يرسم المدينة بكاميرا تلحگ اللاعب، ويستلم السحب (عصا تحكم بأي مكان)
 class Arena extends PositionComponent with DragCallbacks, HasGameReference<FlameGame> {
   final ArcadeWorld wd;
   Arena(this.wd);
 
-  double tile = 40;
-  Offset origin = Offset.zero;
+  static double topSpace = 120; // تحت الشريط الفوگاني (يتحدد من الواجهة)
+  static const double viewWidth = 6.4; // كم مربع يبين بعرض الشاشة
+
+  double tile = 60;
+  Offset cam = ArcadeWorld.startPos;
+  Offset _sc = Offset.zero; // مركز الشاشة
+  Rect view = Rect.zero; // اللي يبين من المدينة
   Offset? _joyStart;
   Offset _joyNow = Offset.zero;
   final Map<String, TextPainter> _tp = {};
   final _rnd = Random();
-
-  static double topSpace = 120; // تحت الشريط الفوگاني (يتحدد من الواجهة)
 
   // صور المدينة (Kenney RPG Urban Pack - CC0)
   ui.Image? _sheet;
@@ -48,7 +51,14 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     ..isAntiAlias = false;
   final Paint _thiefPaint = Paint()
     ..filterQuality = FilterQuality.none
-    ..colorFilter = const ColorFilter.mode(Color(0xFF6A6A88), BlendMode.modulate);
+    ..colorFilter = const ColorFilter.mode(Color(0xFF7A7A99), BlendMode.modulate);
+  final Paint _hurtPaint = Paint()
+    ..filterQuality = FilterQuality.none
+    ..colorFilter = const ColorFilter.mode(Color(0xFFFF8A80), BlendMode.modulate);
+
+  // مكان السيارات بالصورة (بكسل)
+  static const _carFront = [Rect.fromLTWH(244, 234, 24, 22), Rect.fromLTWH(245, 266, 22, 22), Rect.fromLTWH(336, 236, 16, 21)];
+  static const _carBack = [Rect.fromLTWH(272, 235, 16, 21), Rect.fromLTWH(272, 267, 16, 21), Rect.fromLTWH(352, 236, 16, 21)];
 
   @override
   Future<void> onLoad() async {
@@ -56,24 +66,7 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     try {
       _sheet = await game.images.load('city.png');
     } catch (_) {
-      _sheet = null; // إذا الصورة ناقصة نرجع للرسم القديم بدل ما توكف اللعبة
-    }
-  }
-
-  Rect _src(int i) => Rect.fromLTWH((i % 27) * 16.0 + 0.05, (i ~/ 27) * 16.0 + 0.05, 15.9, 15.9);
-
-  void _spr(Canvas c, int i, Rect dst, [Paint? p]) => c.drawImageRect(_sheet!, _src(i), dst, p ?? _px);
-
-  /// يرسم مربع بتسع قطع (زوايا + حواف + وسط) من الصورة
-  void _nine(Canvas c, int tl, Rect r, double s) {
-    final cols = max(2, (r.width / s).round());
-    final rows = max(2, (r.height / s).round());
-    final cw = r.width / cols, rh = r.height / rows;
-    for (var j = 0; j < rows; j++) {
-      for (var i = 0; i < cols; i++) {
-        final idx = tl + (j == 0 ? 0 : (j == rows - 1 ? 54 : 27)) + (i == 0 ? 0 : (i == cols - 1 ? 2 : 1));
-        _spr(c, idx, Rect.fromLTWH(r.left + i * cw, r.top + j * rh, cw + 0.7, rh + 0.7));
-      }
+      _sheet = null;
     }
   }
 
@@ -83,15 +76,41 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     size = s.clone();
   }
 
-  void _layout() {
-    final top = topSpace;
-    final avail = size.y - top - 24;
-    tile = min(size.x / ArcadeWorld.w, avail / ArcadeWorld.h);
-    origin = Offset((size.x - tile * ArcadeWorld.w) / 2, top + (avail - tile * ArcadeWorld.h) / 2);
+  // ---------- الكاميرا ----------
+  @override
+  void update(double dt) {
+    super.update(dt);
+    Offset target;
+    if (wd.phase == Phase.menu) {
+      // جولة بطيئة بالمدينة ورا القائمة
+      target = Offset(8 + sin(wd.clock * 0.12) * 4.5, 12 + cos(wd.clock * 0.08) * 8);
+    } else {
+      // الكاميرا تسبق اللاعب شوية باتجاه حركته
+      target = wd.player + wd.move * 1.2;
+    }
+    if ((cam - target).distance > 6) {
+      cam = target;
+    } else {
+      final k = 1 - exp(-dt * 5);
+      cam = Offset.lerp(cam, target, k)!;
+    }
   }
 
-  Offset P(Offset w) => origin + w * tile;
-  Rect R(Rect r) => Rect.fromLTRB(P(r.topLeft).dx, P(r.topLeft).dy, P(r.bottomRight).dx, P(r.bottomRight).dy);
+  void _layout() {
+    tile = size.x / viewWidth;
+    _sc = Offset(size.x / 2, topSpace * 0.5 + size.y * 0.5);
+    final halfW = _sc.dx / tile;
+    final up = _sc.dy / tile, down = (size.y - _sc.dy) / tile;
+    const m = 1.0; // نخلي شوية برّا المدينة يبين
+    final cx = cam.dx.clamp(halfW - m, ArcadeWorld.w - halfW + m).toDouble();
+    final cy = cam.dy.clamp(up - m, ArcadeWorld.h - down + m).toDouble();
+    cam = Offset(cx, cy);
+    view = Rect.fromLTRB(cx - halfW, cy - up, cx + halfW, cy + down);
+  }
+
+  Offset P(Offset w) => _sc + (w - cam) * tile;
+  Rect R(Rect r) => Rect.fromPoints(P(r.topLeft), P(r.bottomRight));
+  bool _visible(Rect worldRect) => worldRect.overlaps(view.inflate(0.5));
 
   // ---------- عصا التحكم ----------
   @override
@@ -112,9 +131,8 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
       wd.setMove(Offset.zero);
       return;
     }
-    // استجابة أسرع: أول ما تسحب شوية يمشي بسرعة زينة
     final mag = min(1.0, 0.55 + 0.45 * len);
-    if (len > 1) _joyStart = _joyNow - (v / len) * 40; // العصا تلحك إصبعك
+    if (len > 1) _joyStart = _joyNow - (v / len) * 40; // العصا تلحگ إصبعك
     v = v / len * mag;
     wd.setMove(v);
   }
@@ -152,265 +170,280 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     tp.paint(c, center - Offset(tp.width / 2, tp.height / 2));
   }
 
+  Rect _src(int i) => Rect.fromLTWH((i % 27) * 16.0 + 0.05, (i ~/ 27) * 16.0 + 0.05, 15.9, 15.9);
+
+  void _spr(Canvas c, int i, Rect dst, [Paint? p]) => c.drawImageRect(_sheet!, _src(i), dst, p ?? _px);
+
+  /// مربع بتسع قطع (زوايا + حواف + وسط)
+  void _nine(Canvas c, int tl, Rect r, double s) {
+    final cols = max(2, (r.width / s).round());
+    final rows = max(2, (r.height / s).round());
+    final cw = r.width / cols, rh = r.height / rows;
+    for (var j = 0; j < rows; j++) {
+      for (var i = 0; i < cols; i++) {
+        final idx = tl + (j == 0 ? 0 : (j == rows - 1 ? 54 : 27)) + (i == 0 ? 0 : (i == cols - 1 ? 2 : 1));
+        _spr(c, idx, Rect.fromLTWH(r.left + i * cw, r.top + j * rh, cw + 0.7, rh + 0.7));
+      }
+    }
+  }
+
   // ---------- الرسم ----------
   @override
   void render(Canvas c) {
     if (size.x != game.size.x || size.y != game.size.y) size = game.size.clone();
     _layout();
-    if (wd.phase == Phase.menu) {
-      _menuBackdrop(c);
+    if (_sheet == null) {
+      // الصورة ناقصة: نكتب تنبيه بدل ما تطلع شاشة فارغة
+      _say(c, '⚠️ ملف assets/images/city.png ناقص', Offset(size.x / 2, size.y * 0.7), 16, Colors.white);
       return;
     }
     c.save();
     if (wd.shake > 0) {
-      c.translate((_rnd.nextDouble() - 0.5) * 10 * wd.shake, (_rnd.nextDouble() - 0.5) * 10 * wd.shake);
+      c.translate((_rnd.nextDouble() - 0.5) * 12 * wd.shake, (_rnd.nextDouble() - 0.5) * 12 * wd.shake);
     }
     _ground(c);
-    for (var i = 0; i < wd.houses.length; i++) {
-      _houseShadow(c, wd.houses[i]);
-    }
     _generatorDraw(c);
-    _wires(c);
-    for (var i = 0; i < wd.houses.length; i++) {
-      _house(c, wd.houses[i]);
+    for (final hs in wd.houses) {
+      if (_visible(hs.rect)) _house(c, hs);
     }
     for (final p in wd.pickups) {
       _pickup(c, p);
     }
-    for (final t in wd.thieves) {
-      _thief(c, t);
+    for (final car in wd.cars) {
+      if (_visible(car.rect)) _car(c, car);
     }
-    _player(c);
-    _hint(c);
+    if (wd.phase != Phase.menu) {
+      // الشخصيات بالترتيب حسب الارتفاع حتى اللي جوه يطلع گدام
+      final chars = <MapEntry<double, VoidCallback>>[
+        MapEntry(wd.player.dy, () => _player(c)),
+        for (final t in wd.thieves) MapEntry(t.pos.dy, () => _thief(c, t)),
+      ]..sort((a, b) => a.key.compareTo(b.key));
+      for (final e in chars) {
+        e.value();
+      }
+      _hint(c);
+    }
     for (final p in wd.particles) {
       c.drawCircle(P(p.pos), p.size * tile * (0.4 + p.life), Paint()..color = Color(p.color));
+    }
+    final menu = wd.phase == Phase.menu;
+    if (menu || wd.cfg.night) _night(c, menu ? 0.55 : 0.86);
+    if (wd.stormT > 0) _rain(c);
+    for (final hs in wd.houses) {
+      if (!hs.lit && _visible(hs.rect)) _houseAlarm(c, hs);
     }
     for (final f in wd.floats) {
       final pos = P(f.pos).translate(0, -tile * 0.6 - f.t * 45);
       final a = (255 * (1 - f.t / 1.2)).clamp(0, 255).round();
-      final col = Color(f.color);
-      final tp = _text(f.text, 20, col);
-      c.saveLayer(Rect.fromCenter(center: pos, width: tp.width + 24, height: tp.height + 16), Paint()..color = Color.fromARGB(a, 0, 0, 0));
+      final tp = _text(f.text, 20, Color(f.color));
       final r = Rect.fromCenter(center: pos, width: tp.width + 16, height: tp.height + 8);
+      c.saveLayer(r.inflate(4), Paint()..color = Color.fromARGB(a, 0, 0, 0));
       c.drawRRect(RRect.fromRectAndRadius(r, const Radius.circular(12)), Paint()..color = const Color(0xCC000000));
       tp.paint(c, Offset(r.left + 8, r.top + 4));
       c.restore();
     }
     c.restore();
+    if (wd.lightning > 0) {
+      c.drawRect(Offset.zero & Size(size.x, size.y), Paint()..color = Color.fromARGB((wd.lightning * 150).round(), 230, 240, 255));
+    }
+    if (wd.phase == Phase.playing || wd.phase == Phase.countdown) {
+      _arrows(c);
+      if (wd.overloadOn) _heatBar(c);
+      if (wd.cfg.fuelDrain > 0) _fuelBar(c);
+    }
     _joystick(c);
   }
 
-  void _menuBackdrop(Canvas c) {
-    // مدينة خفيفة بالخلفية للقائمة
-    final t = wd.clock;
-    for (var i = 0; i < 18; i++) {
-      final x = (i * 73 % 360) / 360 * size.x;
-      final hgt = 60 + (i * 37 % 120).toDouble();
-      final y = size.y - hgt;
-      c.drawRect(Rect.fromLTWH(x - 25, y, 50, hgt), Paint()..color = Color.lerp(const Color(0xFF263238), const Color(0xFF37474F), (i % 3) / 2)!);
-      for (var k = 0; k < 3; k++) {
-        final on = (sin(t * 1.3 + i * 2 + k) > -0.2);
-        c.drawRect(Rect.fromLTWH(x - 15 + k * 11, y + 14, 7, 9), Paint()..color = on ? const Color(0xFFFFD54F) : const Color(0xFF1C262B));
+  void _ground(Canvas c) {
+    const s = 0.5;
+    final x0 = (view.left / s).floor() - 1, x1 = (view.right / s).ceil() + 1;
+    final y0 = (view.top / s).floor() - 1, y1 = (view.bottom / s).ceil() + 1;
+    final ts = tile * s;
+    for (var gy = y0; gy <= y1; gy++) {
+      for (var gx = x0; gx <= x1; gx++) {
+        final wx = gx * s, wy = gy * s;
+        final inside = wx >= 0 && wy >= 0 && wx < ArcadeWorld.w && wy < ArcadeWorld.h;
+        final o = P(Offset(wx, wy));
+        _spr(c, inside ? 441 : 28, Rect.fromLTWH(o.dx, o.dy, ts + 0.7, ts + 0.7));
       }
     }
-  }
-
-  void _ground(Canvas c) {
-    if (_sheet != null) {
-      _groundSpr(c);
-      return;
-    }
-    final arena = R(const Rect.fromLTWH(0, 0, ArcadeWorld.w, ArcadeWorld.h));
-    c.drawRRect(RRect.fromRectAndRadius(arena.inflate(6), const Radius.circular(18)), Paint()..color = const Color(0xFFBFA77A));
-    c.drawRRect(RRect.fromRectAndRadius(arena, const Radius.circular(14)), Paint()..color = const Color(0xFF4A4F57));
-    // أرصفة
-    for (final hs in wd.houses) {
-      c.drawRRect(RRect.fromRectAndRadius(R(hs.rect.inflate(0.18)), Radius.circular(tile * 0.18)), Paint()..color = const Color(0xFFA9ADB2));
-    }
-    // خطوط الشارع
+    // حافة المدينة
+    c.drawRect(
+      R(const Rect.fromLTWH(0, 0, ArcadeWorld.w, ArcadeWorld.h)),
+      Paint()
+        ..color = const Color(0xFFB0B4C8)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = tile * 0.12,
+    );
+    // خطوط الشوارع
     final dash = Paint()
       ..color = const Color(0xCCFFFFFF)
       ..strokeWidth = tile * 0.06;
-    for (var x = 0.3; x < ArcadeWorld.w; x += 0.7) {
-      if (x > 3.2 && x < 4.8) continue;
-      c.drawLine(P(Offset(x, 5.95)), P(Offset(x + 0.35, 5.95)), dash);
-    }
-    final dash2 = Paint()
-      ..color = const Color(0x55FFFFFF)
-      ..strokeWidth = tile * 0.04;
-    for (final x in [2.6, 5.4]) {
-      for (var y = 0.3; y < ArcadeWorld.h; y += 0.7) {
-        if (y > 4.6 && y < 7.3) continue;
-        c.drawLine(P(Offset(x, y)), P(Offset(x, y + 0.35)), dash2);
+    for (var i = 1; i < ArcadeWorld.roadYs.length - 1; i++) {
+      final y = ArcadeWorld.roadYs[i];
+      if (y < view.top - 1 || y > view.bottom + 1) continue;
+      for (var x = max(0.0, (view.left / 0.8).floor() * 0.8); x < min(ArcadeWorld.w, view.right + 1); x += 0.8) {
+        if (ArcadeWorld.roadXs.any((rx) => (x + 0.2 - rx).abs() < 1.0)) continue;
+        c.drawLine(P(Offset(x, y)), P(Offset(x + 0.4, y)), dash);
       }
     }
-    // عبّارة مشاة
-    for (var k = 0; k < 5; k++) {
-      final r = Rect.fromLTWH(1.95 + k * 0.25, 4.75, 0.14, 0.45);
-      c.drawRect(R(r), Paint()..color = const Color(0x88FFFFFF));
+    for (var i = 1; i < ArcadeWorld.roadXs.length - 1; i++) {
+      final x = ArcadeWorld.roadXs[i];
+      if (x < view.left - 1 || x > view.right + 1) continue;
+      for (var y = max(0.0, (view.top / 0.8).floor() * 0.8); y < min(ArcadeWorld.h, view.bottom + 1); y += 0.8) {
+        if (ArcadeWorld.roadYs.any((ry) => (y + 0.2 - ry).abs() < 1.0)) continue;
+        c.drawLine(P(Offset(x, y)), P(Offset(x, y + 0.4)), dash);
+      }
+      // عبّارات مشاة قبل كل تقاطع
+      for (var j = 1; j < ArcadeWorld.roadYs.length - 1; j++) {
+        final y = ArcadeWorld.roadYs[j] - 1.45;
+        if (y < view.top - 1 || y > view.bottom + 1) continue;
+        for (var k = 0; k < 3; k++) {
+          _spr(c, 434, R(Rect.fromLTWH(x - 0.8 + k * 0.533, y, 0.54, 0.5)));
+        }
+      }
+    }
+    // أرصفة
+    for (final hs in wd.houses) {
+      if (_visible(hs.rect)) _nine(c, 8, R(hs.rect.inflate(0.25)), tile * 0.4);
+    }
+    if (_visible(ArcadeWorld.plaza)) _nine(c, 8, R(ArcadeWorld.plaza.inflate(0.25)), tile * 0.4);
+    // أشجار وأعمدة إنارة (زينة)
+    var n = 0;
+    for (final hs in wd.houses) {
+      n++;
+      if (!_visible(hs.rect)) continue;
+      final r = R(hs.rect.inflate(0.25));
+      final ts = tile * 0.5;
+      if (n % 2 == 0) {
+        _spr(c, 260, Rect.fromLTWH(r.left - ts * 0.15, r.top - ts * 1.1, ts, ts));
+        _spr(c, 287, Rect.fromLTWH(r.left - ts * 0.15, r.top - ts * 0.1, ts, ts));
+      } else {
+        _spr(c, 165, Rect.fromLTWH(r.right - ts * 0.85, r.top - ts * 1.0, ts, ts));
+        _spr(c, 192, Rect.fromLTWH(r.right - ts * 0.85, r.top, ts, ts));
+      }
     }
   }
-
-  void _houseShadow(Canvas c, House hs) {
-    if (_sheet != null) return;
-    c.drawRRect(RRect.fromRectAndRadius(R(hs.rect.shift(const Offset(0.12, 0.14))), Radius.circular(tile * 0.15)),
-        Paint()..color = const Color(0x55000000));
-  }
-
-  Color _mix(int a, int b, double t) => Color.lerp(Color(a), Color(b), t)!;
 
   void _house(Canvas c, House hs) {
-    if (_sheet != null) {
-      _houseSpr(c, hs);
-      return;
-    }
     final r = R(hs.rect);
-    final pulse = (sin(wd.clock * (hs.dark < 3 ? 14 : 7)) + 1) / 2;
+    c.drawRect(r.shift(Offset(tile * 0.1, tile * 0.12)), Paint()..color = const Color(0x55000000));
     if (hs.lit) {
-      c.drawRRect(RRect.fromRectAndRadius(r.inflate(tile * 0.25), Radius.circular(tile * 0.4)), Paint()..color = const Color(0x22FFE082));
+      c.drawRRect(RRect.fromRectAndRadius(r.inflate(tile * 0.2), Radius.circular(tile * 0.3)), Paint()..color = const Color(0x28FFE082));
     }
-    final roof = hs.lit ? Color(hs.color) : _mix(hs.color, 0xFF2B2B33, 0.6);
-    c.drawRRect(RRect.fromRectAndRadius(r, Radius.circular(tile * 0.15)), Paint()..color = roof);
-    // حافة السطح
-    c.drawRRect(
-      RRect.fromRectAndRadius(r.deflate(tile * 0.06), Radius.circular(tile * 0.12)),
-      Paint()
-        ..color = Color.lerp(roof, Colors.black, 0.25)!
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = tile * 0.08,
-    );
-    // خزان ماء، سبلت، دش
-    final tank = Offset(r.left + tile * 0.4, r.top + tile * 0.4);
-    c.drawCircle(tank.translate(2, 3), tile * 0.2, Paint()..color = const Color(0x33000000));
-    c.drawCircle(tank, tile * 0.2, Paint()..color = const Color(0xFFF5F5F5));
-    c.drawCircle(tank, tile * 0.12, Paint()..color = const Color(0xFFE0E0E0));
-    c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(r.right - tile * 0.62, r.top + tile * 0.22, tile * 0.42, tile * 0.26), Radius.circular(tile * 0.05)),
-        Paint()..color = const Color(0xFFECEFF1));
-    c.drawOval(Rect.fromCenter(center: Offset(r.right - tile * 0.35, r.bottom - tile * 0.35), width: tile * 0.3, height: tile * 0.2),
-        Paint()..color = const Color(0xFFBDBDBD));
-    // شبابيك السطح تضوي
-    for (var k = 0; k < 3; k++) {
-      final wr = Rect.fromLTWH(r.left + tile * (0.3 + k * 0.38), r.bottom - tile * 0.45, tile * 0.22, tile * 0.16);
-      c.drawRect(wr, Paint()..color = hs.lit ? const Color(0xFFFFD54F) : const Color(0xFF263238));
+    final wallH = r.height * 0.42;
+    final roof = Rect.fromLTRB(r.left, r.top, r.right, r.bottom - wallH);
+    final wall = Rect.fromLTRB(r.left, r.bottom - wallH, r.right, r.bottom);
+    _nine(c, hs.style % 2 == 0 ? 81 : 89, roof, tile * 0.4);
+    _spr(c, 280, Rect.fromLTWH(roof.left + tile * 0.15, roof.top + tile * 0.12, tile * 0.42, tile * 0.42));
+    final brick = hs.style % 3 == 0 ? 72 : (hs.style % 3 == 1 ? 180 : 99);
+    const cols = 5;
+    final cw = wall.width / cols;
+    for (var i = 0; i < cols; i++) {
+      final cell = Rect.fromLTWH(wall.left + i * cw, wall.top, cw + 0.7, wall.height + 0.7);
+      _spr(c, brick, cell);
+      final sq = min(cw, wall.height) * 0.92;
+      final win = Rect.fromCenter(center: cell.center, width: sq, height: sq);
+      if (i == 2) {
+        _spr(c, 285, win);
+      } else {
+        _spr(c, 336, win);
+        final glass = win.deflate(sq * 0.32);
+        c.drawRect(glass, Paint()..color = hs.lit ? const Color(0xDDFFD54F) : const Color(0xCC10141C));
+      }
     }
+    if (!hs.lit) c.drawRect(r, Paint()..color = const Color(0x88000018));
     if (hs.flash > 0) {
-      c.drawRRect(RRect.fromRectAndRadius(r, Radius.circular(tile * 0.15)),
-          Paint()..color = Color.fromARGB((hs.flash / 0.6 * 200).round().clamp(0, 255), 255, 255, 255));
+      c.drawRect(r, Paint()..color = Color.fromARGB((hs.flash / 0.6 * 200).round().clamp(0, 255), 255, 255, 255));
     }
-    if (!hs.lit) {
-      final center = r.center;
-      final rad = tile * 0.55;
-      c.drawCircle(center, rad + pulse * tile * 0.15, Paint()..color = Color.fromARGB((80 + pulse * 80).round(), 255, 23, 68));
-      c.drawCircle(center, rad, Paint()..color = const Color(0xEE1A1A1A));
-      c.drawArc(
-        Rect.fromCircle(center: center, radius: rad),
-        -pi / 2,
-        2 * pi * (hs.dark / wd.cfg.darkTimeout).clamp(0.0, 1.0),
-        false,
-        Paint()
-          ..color = hs.dark < 3 ? const Color(0xFFFF1744) : const Color(0xFFFFC107)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = tile * 0.1,
-      );
-      _say(c, '⚡', center, tile * 0.5, Colors.white);
-    }
-    if (hs.angry > 0) {
-      _say(c, '😡', r.topCenter.translate(0, -tile * 0.2 - (2.5 - hs.angry) * 10), tile * 0.6, Colors.white);
-    }
+    if (hs.angry > 0) _say(c, '😡', r.topCenter.translate(0, -tile * 0.2 - (2.5 - hs.angry) * 10), tile * 0.6, Colors.white);
+  }
+
+  void _houseAlarm(Canvas c, House hs) {
+    final r = R(hs.rect);
+    final center = Offset(r.center.dx, r.top + r.height * 0.32);
+    final pulse = (sin(wd.clock * (hs.dark < 3 ? 14 : 7)) + 1) / 2;
+    final rad = tile * 0.42;
+    c.drawCircle(center, rad + pulse * tile * 0.18, Paint()..color = Color.fromARGB((90 + pulse * 90).round(), 255, 23, 68));
+    c.drawCircle(center, rad, Paint()..color = const Color(0xEE1A1A1A));
+    c.drawArc(
+      Rect.fromCircle(center: center, radius: rad),
+      -pi / 2,
+      2 * pi * (hs.dark / wd.cfg.darkTimeout).clamp(0.0, 1.0),
+      false,
+      Paint()
+        ..color = hs.dark < 3 ? const Color(0xFFFF1744) : const Color(0xFFFFC107)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = tile * 0.1,
+    );
+    _say(c, '⚡', center, tile * 0.42, Colors.white);
   }
 
   void _generatorDraw(Canvas c) {
-    final g = ArcadeWorld.generator;
+    if (!_visible(ArcadeWorld.plaza)) return;
     final on = wd.generatorOn;
-    final shake = on ? sin(wd.clock * 60) * 1.2 : 0.0;
-    final r = R(g).shift(Offset(shake, 0));
-    c.drawRRect(RRect.fromRectAndRadius(r.shift(const Offset(5, 6)), Radius.circular(tile * 0.15)), Paint()..color = const Color(0x55000000));
-    c.drawRRect(RRect.fromRectAndRadius(r, Radius.circular(tile * 0.15)), Paint()..color = on ? const Color(0xFF2E7D32) : const Color(0xFF616161));
-    for (var k = 0; k < 5; k++) {
-      final x = r.left + tile * 0.15 + k * tile * 0.13;
-      c.drawLine(Offset(x, r.top + tile * 0.2), Offset(x, r.bottom - tile * 0.2), Paint()
-        ..color = const Color(0x55000000)
-        ..strokeWidth = 2);
+    final hot = wd.overloadOn;
+    final shakeX = on ? sin(wd.clock * (hot ? 90 : 60)) * (hot ? 3 : 1.2) : 0.0;
+    final r = R(ArcadeWorld.generator).shift(Offset(shakeX, 0));
+    if (hot) {
+      c.drawRRect(RRect.fromRectAndRadius(r.inflate(tile * (0.25 + wd.heat * 0.3)), Radius.circular(tile * 0.4)),
+          Paint()..color = Color.fromARGB((60 + wd.heat * 150).round().clamp(0, 255), 255, 87, 34));
     }
-    // مروحة تدور
-    final fan = Offset(r.right - tile * 0.35, r.center.dy);
-    c.drawCircle(fan, tile * 0.28, Paint()..color = const Color(0xFF1B5E20));
-    final ang = on ? wd.clock * 20 : 0.0;
+    c.drawRRect(RRect.fromRectAndRadius(r.shift(const Offset(5, 6)), Radius.circular(tile * 0.15)), Paint()..color = const Color(0x55000000));
+    final body = hot
+        ? Color.lerp(const Color(0xFF2E7D32), const Color(0xFFD84315), wd.heat.clamp(0.0, 1.0))!
+        : (on ? const Color(0xFF2E7D32) : const Color(0xFF616161));
+    c.drawRRect(RRect.fromRectAndRadius(r, Radius.circular(tile * 0.15)), Paint()..color = body);
+    c.drawRRect(
+      RRect.fromRectAndRadius(r.deflate(tile * 0.06), Radius.circular(tile * 0.12)),
+      Paint()
+        ..color = const Color(0x55000000)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = tile * 0.06,
+    );
+    for (var k = 0; k < 5; k++) {
+      final x = r.left + tile * 0.18 + k * tile * 0.14;
+      c.drawLine(Offset(x, r.top + tile * 0.25), Offset(x, r.bottom - tile * 0.25), Paint()
+        ..color = const Color(0x55000000)
+        ..strokeWidth = 3);
+    }
+    final fan = Offset(r.right - tile * 0.4, r.center.dy);
+    c.drawCircle(fan, tile * 0.32, Paint()..color = const Color(0xFF1B5E20));
+    final ang = on ? wd.clock * (hot ? 35 : 20) : 0.0;
     for (var k = 0; k < 3; k++) {
       final a = ang + k * 2 * pi / 3;
-      c.drawLine(fan, fan + Offset(cos(a), sin(a)) * tile * 0.24, Paint()
+      c.drawLine(fan, fan + Offset(cos(a), sin(a)) * tile * 0.27, Paint()
         ..color = const Color(0xFFA5D6A7)
-        ..strokeWidth = tile * 0.07
+        ..strokeWidth = tile * 0.08
         ..strokeCap = StrokeCap.round);
     }
-    // عداد الكاز حول المولدة
-    if (wd.cfg.fuelDrain > 0) {
-      final ring = r.inflate(tile * 0.22);
-      final col = Color.lerp(const Color(0xFFFF1744), const Color(0xFF69F0AE), wd.fuel)!;
-      c.drawRRect(
-        RRect.fromRectAndRadius(ring, Radius.circular(tile * 0.3)),
-        Paint()
-          ..color = const Color(0x44FFFFFF)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = tile * 0.1,
-      );
-      final w = ring.width * wd.fuel;
-      c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(ring.left, ring.bottom - tile * 0.12, w, tile * 0.12), const Radius.circular(4)),
-          Paint()..color = col);
-      if (!on) _say(c, '⛽', r.center.translate(0, -tile * 0.9 - (sin(wd.clock * 8) * 4)), tile * 0.6, Colors.white);
-    }
-    // دخان
     if (on) {
       for (var k = 0; k < 4; k++) {
         final t = (wd.clock * 0.7 + k / 4) % 1;
-        c.drawCircle(Offset(r.left + tile * 0.3 + t * tile * 0.4, r.top - t * tile * 1.0), tile * (0.08 + t * 0.18),
-            Paint()..color = Color.fromARGB((120 * (1 - t)).round(), 200, 200, 200));
+        c.drawCircle(
+            Offset(r.left + tile * 0.3 + t * tile * 0.4, r.top - t * tile * 1.0),
+            tile * (0.08 + t * 0.2),
+            Paint()
+              ..color = hot ? Color.fromARGB((160 * (1 - t)).round(), 60, 60, 60) : Color.fromARGB((120 * (1 - t)).round(), 200, 200, 200));
       }
+    } else if (wd.cfg.fuelDrain > 0) {
+      _say(c, '⛽', r.center.translate(0, -tile * 0.9 - sin(wd.clock * 8) * 4), tile * 0.6, Colors.white);
     }
-  }
-
-  void _wires(Canvas c) {
-    final g = P(ArcadeWorld.generator.center);
-    for (var i = 0; i < wd.houses.length; i++) {
-      final hs = wd.houses[i];
-      final end = P(hs.center);
-      final mid = Offset((g.dx + end.dx) / 2, (g.dy + end.dy) / 2 + tile * 0.4);
-      final path = Path()
-        ..moveTo(g.dx, g.dy)
-        ..quadraticBezierTo(mid.dx, mid.dy, end.dx, end.dy);
-      final live = hs.lit && wd.generatorOn;
-      c.drawPath(
-        path,
-        Paint()
-          ..color = live ? const Color(0x88FFE082) : const Color(0x55000000)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = live ? 2.5 : 1.5,
-      );
-      if (live) {
-        // كهرباء تجري بالواير
-        final t = (wd.clock * 0.9 + i * 0.137) % 1;
-        final q = _bezier(g, mid, end, t);
-        c.drawCircle(q, 3.2, Paint()..color = const Color(0xFFFFF59D));
-      }
-    }
-  }
-
-  Offset _bezier(Offset a, Offset b, Offset c, double t) {
-    final u = 1 - t;
-    return a * (u * u) + b * (2 * u * t) + c * (t * t);
+    if (hot) _say(c, wd.nearGenerator ? '👇' : '🔥', r.topCenter.translate(0, -tile * 0.6 - sin(wd.clock * 10) * 5), tile * 0.6, Colors.white);
   }
 
   void _pickup(Canvas c, Pickup p) {
+    if (!_visible(Rect.fromCircle(center: p.pos, radius: 0.5))) return;
     final bob = sin(wd.clock * 5 + p.pos.dx) * 4;
     final pos = P(p.pos).translate(0, bob);
-    final blink = p.life < 2.5 && (wd.clock * 8).floor().isEven;
-    if (blink) return;
-    c.drawCircle(P(p.pos).translate(0, tile * 0.25), tile * 0.22, Paint()..color = const Color(0x44000000));
+    if (p.life < 2.5 && (wd.clock * 8).floor().isEven) return;
+    c.drawOval(Rect.fromCenter(center: P(p.pos).translate(0, tile * 0.28), width: tile * 0.5, height: tile * 0.16),
+        Paint()..color = const Color(0x55000000));
     if (p.kind == 0) {
-      c.drawCircle(pos, tile * 0.45, Paint()..color = const Color(0x33FFB300));
+      c.drawCircle(pos, tile * 0.48, Paint()..color = const Color(0x44FFB300));
       final r = Rect.fromCenter(center: pos, width: tile * 0.5, height: tile * 0.62);
       c.drawRRect(RRect.fromRectAndRadius(r, Radius.circular(tile * 0.08)), Paint()..color = const Color(0xFFD32F2F));
-      c.drawRect(Rect.fromLTWH(r.left, r.center.dy - tile * 0.05, r.width, tile * 0.1), Paint()..color = const Color(0xFFFFFFFF));
+      c.drawRect(Rect.fromLTWH(r.left, r.center.dy - tile * 0.05, r.width, tile * 0.1), Paint()..color = Colors.white);
       c.drawRect(Rect.fromLTWH(r.right - tile * 0.18, r.top - tile * 0.1, tile * 0.12, tile * 0.12), Paint()..color = const Color(0xFF424242));
     } else {
       c.drawCircle(pos, tile * 0.42, Paint()..color = const Color(0xFF0288D1));
@@ -418,53 +451,83 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     }
   }
 
-  void _thief(Canvas c, Thief t) {
-    if (_sheet != null) {
-      _thiefSpr(c, t);
-      return;
+  void _car(Canvas c, Car car) {
+    final p = P(car.pos);
+    c.drawOval(
+        Rect.fromCenter(
+            center: p.translate(tile * 0.06, tile * 0.1), width: tile * (car.vertical ? 0.75 : 1.05), height: tile * (car.vertical ? 1.05 : 0.75)),
+        Paint()..color = const Color(0x55000000));
+    if (car.vertical) {
+      final src = car.dir.dy > 0 ? _carFront[car.kind] : _carBack[car.kind];
+      final scale = 0.72 / src.width; // عرض السيارة ثابت حتى ما تطلع على الرصيف
+      final dst = Rect.fromCenter(center: p, width: src.width * scale * tile, height: src.height * scale * tile);
+      c.drawImageRect(_sheet!, src, dst, _px);
+    } else {
+      final src = _carBack[car.kind];
+      final scale = 0.72 / src.width;
+      c.save();
+      c.translate(p.dx, p.dy);
+      c.rotate(car.dir.dx > 0 ? pi / 2 : -pi / 2);
+      c.drawImageRect(_sheet!, src, Rect.fromCenter(center: Offset.zero, width: src.width * scale * tile, height: src.height * scale * tile), _px);
+      c.restore();
     }
-    final p = P(t.pos);
-    final s = tile * 0.3;
-    c.drawCircle(p.translate(3, 4), s, Paint()..color = const Color(0x55000000));
-    c.drawCircle(p, s * 1.6, Paint()..color = Color.fromARGB(((sin(wd.clock * 10) + 1) * 40).round(), 255, 23, 68));
-    c.drawCircle(p, s, Paint()..color = const Color(0xFF151515));
-    c.drawCircle(p.translate(-s * 0.7, s * 0.2), s * 0.5, Paint()..color = const Color(0xFF795548)); // كيس
-    c.drawCircle(p.translate(0, -s * 0.1), s * 0.55, Paint()..color = const Color(0xFF151515));
-    c.drawRect(Rect.fromCenter(center: p.translate(0, -s * 0.15), width: s * 1.0, height: s * 0.22), Paint()..color = Colors.white);
-    if (!t.leaving) _say(c, '!', p.translate(0, -s * 2), tile * 0.45, const Color(0xFFFF1744));
+    if (car.honk > 2.0) _say(c, '📢', p.translate(0, -tile * 0.7), tile * 0.4, Colors.white);
+  }
+
+  /// إطار الشخصية: عمود 0 يسار، 1 جوه، 2 فوك، 3 يمين. صف 0 واگف، 1 و2 مشي
+  int _charFrame(int base, Offset dir, bool moving, double phase) {
+    int col;
+    if (dir.dx.abs() > dir.dy.abs()) {
+      col = dir.dx < 0 ? 0 : 3;
+    } else {
+      col = dir.dy > 0 ? 1 : 2;
+    }
+    var row = 0;
+    if (moving) {
+      const cyc = [1, 0, 2, 0];
+      row = cyc[(phase * 10).floor() % 4];
+    }
+    return base + row * 27 + col;
+  }
+
+  void _drawChar(Canvas c, int frame, Offset feet, double h, [Paint? p]) {
+    c.drawOval(Rect.fromCenter(center: feet, width: h * 0.6, height: h * 0.22), Paint()..color = const Color(0x66000000));
+    _spr(c, frame, Rect.fromLTWH(feet.dx - h / 2, feet.dy - h * 0.95, h, h), p);
   }
 
   void _player(Canvas c) {
-    if (_sheet != null) {
-      _playerSpr(c);
-      return;
-    }
     final p = P(wd.player);
-    final s = tile * 0.32;
-    final moving = wd.move.distance > 0.05;
-    final bob = moving ? sin(wd.clock * 18) * 2 : 0.0;
-    if (wd.boostTimer > 0) {
-      c.drawCircle(p, s * 1.8, Paint()..color = const Color(0x5580D8FF));
-    }
-    c.drawCircle(p.translate(3, 5), s, Paint()..color = const Color(0x55000000));
-    // حلقة صفرة تحت اللاعب
-    c.drawCircle(
-      p,
-      s * 1.35,
+    final h = tile * 1.0;
+    final moving = wd.move.distance > 0.05 && wd.stun <= 0;
+    if (wd.boostTimer > 0) c.drawCircle(p.translate(0, -h * 0.35), h * 0.75, Paint()..color = const Color(0x5580D8FF));
+    // إذا انضرب يرمش
+    if (wd.invuln > 0 && wd.stun <= 0 && (wd.clock * 12).floor().isEven) return;
+    c.drawOval(
+      Rect.fromCenter(center: p.translate(0, h * 0.18), width: h * 0.9, height: h * 0.34),
       Paint()
         ..color = const Color(0xFFFFC107)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 3,
     );
-    // الأكتاف (سترة برتقالية بشريط عاكس)
-    c.drawCircle(p.translate(0, bob), s, Paint()..color = const Color(0xFFFF8F00));
-    c.drawRect(Rect.fromCenter(center: p.translate(0, bob), width: s * 2, height: s * 0.25), Paint()..color = const Color(0xFFE0F7FA));
-    // الراس والكاب باتجاه الحركة
     final dir = Offset(cos(wd.face), sin(wd.face));
-    final head = p.translate(dir.dx * s * 0.25, dir.dy * s * 0.25 + bob);
-    c.drawCircle(head, s * 0.55, Paint()..color = const Color(0xFFC99A6E));
-    c.drawCircle(head.translate(-dir.dx * s * 0.1, -dir.dy * s * 0.1), s * 0.48, Paint()..color = const Color(0xFF212121));
-    c.drawCircle(head + dir * s * 0.45, s * 0.22, Paint()..color = const Color(0xFF212121)); // حافة الكاب
+    final frame = _charFrame(266, dir, moving, wd.clock * (wd.boostTimer > 0 ? 1.6 : 1.0));
+    _drawChar(c, frame, p.translate(0, h * 0.18), h, wd.stun > 0 ? _hurtPaint : null);
+    if (wd.stun > 0) _say(c, '💫', p.translate(0, -h * 0.95), tile * 0.4, Colors.white);
+  }
+
+  void _thief(Canvas c, Thief t) {
+    if (!_visible(Rect.fromCircle(center: t.pos, radius: 1))) return;
+    final p = P(t.pos);
+    final h = tile * 0.95;
+    final fleeing = t.state == ThiefState.fleeing;
+    c.drawCircle(p.translate(0, -h * 0.3), h * 0.6, Paint()..color = Color.fromARGB(((sin(wd.clock * 10) + 1) * 45).round(), 255, 23, 68));
+    final moving = t.state != ThiefState.cutting;
+    _drawChar(c, _charFrame(347, t.dir, moving, wd.clock * (fleeing ? 1.5 : 1.0)), p.translate(0, h * 0.2), h, _thiefPaint);
+    if (t.state == ThiefState.cutting) {
+      _say(c, '✂️', p.translate(0, -h * 1.0 + sin(wd.clock * 20) * 3), tile * 0.45, Colors.white);
+    } else {
+      _say(c, fleeing ? '💰' : '!', p.translate(0, -h * 1.0), tile * 0.45, const Color(0xFFFF1744));
+    }
   }
 
   void _hint(Canvas c) {
@@ -487,8 +550,107 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     final dir = v / len;
     for (var d = tile * 0.8; d < len - tile * 0.6; d += tile * 0.45) {
       final q = a + dir * (d + (wd.clock * 40) % (tile * 0.45));
-      c.drawCircle(q, 4, Paint()..color = const Color(0xFFFFEB3B));
+      c.drawCircle(q, 5, Paint()..color = const Color(0xFFFFEB3B));
     }
+  }
+
+  /// الليل: نعتّم الشاشة ونفتح ضوء حوالين اللاعب والبيوت المنوّرة والسيارات
+  void _night(Canvas c, double darkness) {
+    final screen = Offset.zero & Size(size.x, size.y);
+    c.saveLayer(screen, Paint());
+    c.drawRect(screen, Paint()..color = Color.fromARGB((255 * darkness).round(), 4, 8, 22));
+    final hole = Paint()
+      ..blendMode = BlendMode.dstOut
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, tile * 0.6);
+    if (wd.phase != Phase.menu) c.drawCircle(P(wd.player), tile * 2.4, hole);
+    final houseLight = Paint()
+      ..blendMode = BlendMode.dstOut
+      ..color = const Color(0x99000000)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, tile * 0.5);
+    for (final hs in wd.houses) {
+      if (hs.lit && _visible(hs.rect)) c.drawOval(R(hs.rect.inflate(0.3)).translate(0, tile * 0.4), houseLight);
+    }
+    final carLight = Paint()
+      ..blendMode = BlendMode.dstOut
+      ..color = const Color(0xCC000000)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, tile * 0.4);
+    for (final car in wd.cars) {
+      if (_visible(car.rect)) c.drawCircle(P(car.pos + car.dir * 1.0), tile * 0.8, carLight);
+    }
+    if (wd.generatorOn) c.drawCircle(P(ArcadeWorld.generator.center), tile * 1.4, hole);
+    c.restore();
+  }
+
+  void _rain(Canvas c) {
+    final paint = Paint()
+      ..color = const Color(0x88B3E5FC)
+      ..strokeWidth = 2;
+    final t = wd.clock;
+    for (var i = 0; i < 90; i++) {
+      final x = (i * 97.3 + t * 120) % (size.x + 60) - 30;
+      final y = (i * 53.7 + t * 900) % (size.y + 60) - 30;
+      c.drawLine(Offset(x, y), Offset(x - 8, y + 22), paint);
+    }
+    c.drawRect(Offset.zero & Size(size.x, size.y), Paint()..color = const Color(0x22000033));
+  }
+
+  /// أسهم على حافة الشاشة تأشر للبيوت الطافية والحرامية والمولدة إذا برّا الشاشة
+  void _arrows(Canvas c) {
+    final inner = Rect.fromLTRB(30, topSpace + 30, size.x - 30, size.y - 50);
+    void arrow(Offset world, String icon, Color color, {bool pulse = false}) {
+      final s = P(world);
+      if (inner.inflate(10).contains(s)) return;
+      final v = s - inner.center;
+      if (v.distance < 1) return;
+      final tx = v.dx.abs() < 0.001 ? 1e9 : (inner.width / 2) / v.dx.abs();
+      final ty = v.dy.abs() < 0.001 ? 1e9 : (inner.height / 2) / v.dy.abs();
+      final pos = inner.center + v * min(tx, ty);
+      final dir = v / v.distance;
+      final r = 22.0 + (pulse ? sin(wd.clock * 12) * 3 : 0);
+      final tip = pos + dir * (r + 12);
+      final side = Offset(-dir.dy, dir.dx);
+      final b1 = pos + dir * r + side * 9, b2 = pos + dir * r - side * 9;
+      final tri = Path()
+        ..moveTo(tip.dx, tip.dy)
+        ..lineTo(b1.dx, b1.dy)
+        ..lineTo(b2.dx, b2.dy)
+        ..close();
+      c.drawPath(tri, Paint()..color = color);
+      c.drawCircle(pos, r, Paint()..color = color);
+      c.drawCircle(pos, r - 4, Paint()..color = const Color(0xEE111820));
+      _say(c, icon, pos, 20, Colors.white);
+    }
+
+    for (final hs in wd.houses) {
+      if (!hs.lit) arrow(hs.center, '⚡', hs.dark < 3 ? const Color(0xFFFF1744) : const Color(0xFFFFC107), pulse: hs.dark < 3);
+    }
+    for (final t in wd.thieves) {
+      if (t.pos.dx > -0.5 && t.pos.dx < ArcadeWorld.w + 0.5) arrow(t.pos, '🦹', const Color(0xFFD500F9), pulse: true);
+    }
+    if (wd.overloadOn) arrow(ArcadeWorld.generator.center, '🔥', const Color(0xFFFF6D00), pulse: true);
+    if (wd.cfg.fuelDrain > 0 && wd.fuel < 0.35) {
+      for (final p in wd.pickups) {
+        if (p.kind == 0) arrow(p.pos, '⛽', const Color(0xFFFFB300));
+      }
+    }
+  }
+
+  void _heatBar(Canvas c) {
+    final w = size.x * 0.62;
+    final r = Rect.fromLTWH((size.x - w) / 2, topSpace + 8, w, 16);
+    c.drawRRect(RRect.fromRectAndRadius(r.inflate(3), const Radius.circular(10)), Paint()..color = const Color(0xDD000000));
+    final hh = wd.heat.clamp(0.0, 1.0);
+    c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(r.left, r.top, r.width * hh, r.height), const Radius.circular(8)),
+        Paint()..color = Color.lerp(const Color(0xFFFFB300), const Color(0xFFFF1744), hh)!);
+    _say(c, '🔥 حرارة المولدة', r.center, 12, Colors.white);
+  }
+
+  void _fuelBar(Canvas c) {
+    final r = Rect.fromLTWH(12, size.y - 30, 110, 12);
+    c.drawRRect(RRect.fromRectAndRadius(r.inflate(3), const Radius.circular(8)), Paint()..color = const Color(0xCC000000));
+    c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(r.left, r.top, r.width * wd.fuel, r.height), const Radius.circular(6)),
+        Paint()..color = Color.lerp(const Color(0xFFFF1744), const Color(0xFF69F0AE), wd.fuel)!);
+    _say(c, '⛽', Offset(r.right + 16, r.center.dy), 16, Colors.white);
   }
 
   void _joystick(Canvas c) {
@@ -506,169 +668,5 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     var v = _joyNow - s;
     if (v.distance > 40) v = v / v.distance * 40;
     c.drawCircle(s + v, 24, Paint()..color = const Color(0xCCFFC107));
-  }
-
-  // ================== رسم بالصور الحقيقية ==================
-
-  void _groundSpr(Canvas c) {
-    final arena = R(const Rect.fromLTWH(0, 0, ArcadeWorld.w, ArcadeWorld.h));
-    // إطار رصيف حول الساحة
-    _nine(c, 8, arena.inflate(tile * 0.35), tile * 0.5);
-    c.save();
-    c.clipRect(arena);
-    final s = tile * 0.5;
-    for (var y = arena.top; y < arena.bottom; y += s) {
-      for (var x = arena.left; x < arena.right; x += s) {
-        _spr(c, 441, Rect.fromLTWH(x, y, s + 0.7, s + 0.7));
-      }
-    }
-    c.restore();
-    // أرصفة البيوت
-    for (final hs in wd.houses) {
-      _nine(c, 8, R(hs.rect.inflate(0.2)), tile * 0.4);
-    }
-    // خطوط الشارع
-    final dash = Paint()
-      ..color = const Color(0xDDFFFFFF)
-      ..strokeWidth = tile * 0.06;
-    for (var x = 0.3; x < ArcadeWorld.w; x += 0.7) {
-      if (x > 3.2 && x < 4.8) continue;
-      c.drawLine(P(Offset(x, 5.95)), P(Offset(x + 0.35, 5.95)), dash);
-    }
-    // عبّارة مشاة
-    for (var k = 0; k < 2; k++) {
-      _spr(c, 434, R(Rect.fromLTWH(2.0 + k * 0.6, 4.75, 0.6, 0.45)));
-    }
-    for (var k = 0; k < 2; k++) {
-      _spr(c, 434, R(Rect.fromLTWH(2.1 + k * 0.5, 7.25, 0.5, 0.45)));
-      _spr(c, 434, R(Rect.fromLTWH(4.9 + k * 0.5, 4.2, 0.5, 0.45)));
-    }
-    // أعمدة إنارة وأشجار صغيرة بزوايا الأرصفة (زينة بس)
-    var k = 0;
-    for (final hs in wd.houses) {
-      final r = R(hs.rect.inflate(0.2));
-      final ts = tile * 0.45;
-      if (k % 2 == 0) {
-        _spr(c, 260, Rect.fromLTWH(r.left - ts * 0.2, r.top - ts * 1.2, ts, ts));
-        _spr(c, 287, Rect.fromLTWH(r.left - ts * 0.2, r.top - ts * 0.2, ts, ts));
-      } else {
-        _spr(c, 165, Rect.fromLTWH(r.right - ts * 0.8, r.top - ts * 1.1, ts, ts));
-        _spr(c, 192, Rect.fromLTWH(r.right - ts * 0.8, r.top - ts * 0.1, ts, ts));
-      }
-      k++;
-    }
-  }
-
-  void _houseSpr(Canvas c, House hs) {
-    final r = R(hs.rect);
-    final idx = wd.houses.indexOf(hs);
-    final pulse = (sin(wd.clock * (hs.dark < 3 ? 14 : 7)) + 1) / 2;
-    // ظل
-    c.drawRect(r.shift(Offset(tile * 0.1, tile * 0.12)), Paint()..color = const Color(0x55000000));
-    if (hs.lit) {
-      c.drawRRect(RRect.fromRectAndRadius(r.inflate(tile * 0.22), Radius.circular(tile * 0.3)), Paint()..color = const Color(0x30FFE082));
-    }
-    // السطح (فوك) + الواجهة (جوه)
-    final wallH = r.height * 0.42;
-    final roof = Rect.fromLTRB(r.left, r.top, r.right, r.bottom - wallH);
-    final wall = Rect.fromLTRB(r.left, r.bottom - wallH, r.right, r.bottom);
-    _nine(c, idx % 2 == 0 ? 81 : 89, roof, tile * 0.4);
-    // خزان ماء على السطح
-    _spr(c, 280, Rect.fromLTWH(roof.left + tile * 0.12, roof.top + tile * 0.1, tile * 0.38, tile * 0.38));
-    // جدار طابوق
-    final brick = idx % 3 == 0 ? 72 : (idx % 3 == 1 ? 180 : 99);
-    final cols = 4;
-    final cw = wall.width / cols;
-    for (var i = 0; i < cols; i++) {
-      final cell = Rect.fromLTWH(wall.left + i * cw, wall.top, cw + 0.7, wall.height + 0.7);
-      _spr(c, brick, cell);
-      final sq = min(cw, wall.height) * 0.92;
-      final win = Rect.fromCenter(center: cell.center, width: sq, height: sq);
-      if (i == 2) {
-        _spr(c, 285, win);
-      } else {
-        _spr(c, 336, win);
-        // الشباك يضوي إذا البيت بيه كهرباء
-        final glass = win.deflate(sq * 0.32);
-        c.drawRect(glass, Paint()..color = hs.lit ? const Color(0xDDFFD54F) : const Color(0xCC10141C));
-        if (hs.lit) c.drawRect(glass.inflate(sq * 0.12), Paint()..color = const Color(0x33FFE082));
-      }
-    }
-    // البيت المطفي يصير معتم
-    if (!hs.lit) {
-      c.drawRect(r, Paint()..color = const Color(0x88000018));
-    }
-    if (hs.flash > 0) {
-      c.drawRect(r, Paint()..color = Color.fromARGB((hs.flash / 0.6 * 200).round().clamp(0, 255), 255, 255, 255));
-    }
-    if (!hs.lit) {
-      final center = roof.center;
-      final rad = tile * 0.45;
-      c.drawCircle(center, rad + pulse * tile * 0.15, Paint()..color = Color.fromARGB((80 + pulse * 80).round(), 255, 23, 68));
-      c.drawCircle(center, rad, Paint()..color = const Color(0xEE1A1A1A));
-      c.drawArc(
-        Rect.fromCircle(center: center, radius: rad),
-        -pi / 2,
-        2 * pi * (hs.dark / wd.cfg.darkTimeout).clamp(0.0, 1.0),
-        false,
-        Paint()
-          ..color = hs.dark < 3 ? const Color(0xFFFF1744) : const Color(0xFFFFC107)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = tile * 0.1,
-      );
-      _say(c, '⚡', center, tile * 0.45, Colors.white);
-    }
-    if (hs.angry > 0) {
-      _say(c, '😡', r.topCenter.translate(0, -tile * 0.2 - (2.5 - hs.angry) * 10), tile * 0.6, Colors.white);
-    }
-  }
-
-  /// يختار إطار الشخصية: col0 يسار، col1 جوه، col2 فوك، col3 يمين. الصف 0 واكف، 1 و2 مشي
-  int _charFrame(int base, Offset dir, bool moving, double phase) {
-    int col;
-    if (dir.dx.abs() > dir.dy.abs()) {
-      col = dir.dx < 0 ? 0 : 3;
-    } else {
-      col = dir.dy > 0 ? 1 : 2;
-    }
-    var row = 0;
-    if (moving) {
-      const cyc = [1, 0, 2, 0];
-      row = cyc[(phase * 10).floor() % 4];
-    }
-    return base + row * 27 + col;
-  }
-
-  void _drawChar(Canvas c, int frame, Offset feet, double h, [Paint? p]) {
-    c.drawOval(Rect.fromCenter(center: feet, width: h * 0.6, height: h * 0.22), Paint()..color = const Color(0x66000000));
-    _spr(c, frame, Rect.fromLTWH(feet.dx - h / 2, feet.dy - h * 0.95, h, h), p);
-  }
-
-  void _playerSpr(Canvas c) {
-    final p = P(wd.player);
-    final h = tile * 0.95;
-    final moving = wd.move.distance > 0.05;
-    if (wd.boostTimer > 0) {
-      c.drawCircle(p.translate(0, -h * 0.35), h * 0.75, Paint()..color = const Color(0x5580D8FF));
-    }
-    c.drawOval(
-      Rect.fromCenter(center: p.translate(0, h * 0.18), width: h * 0.9, height: h * 0.34),
-      Paint()
-        ..color = const Color(0xFFFFC107)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3,
-    );
-    final dir = Offset(cos(wd.face), sin(wd.face));
-    _drawChar(c, _charFrame(266, dir, moving, wd.clock * (wd.boostTimer > 0 ? 1.6 : 1.0)), p.translate(0, h * 0.18), h);
-  }
-
-  void _thiefSpr(Canvas c, Thief t) {
-    final p = P(t.pos);
-    final h = tile * 0.9;
-    final goal = t.leaving ? const Offset(-1, 6) : wd.houses[t.target].center;
-    final d = goal - t.pos;
-    c.drawCircle(p.translate(0, -h * 0.3), h * 0.6, Paint()..color = Color.fromARGB(((sin(wd.clock * 10) + 1) * 45).round(), 255, 23, 68));
-    _drawChar(c, _charFrame(347, d, true, wd.clock + t.life), p.translate(0, h * 0.2), h, _thiefPaint);
-    if (!t.leaving) _say(c, '!', p.translate(0, -h * 1.0), tile * 0.45, const Color(0xFFFF1744));
   }
 }
