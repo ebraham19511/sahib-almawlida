@@ -7,6 +7,7 @@ import 'arcade/ui.dart';
 import 'arcade/world.dart';
 import 'game/music.dart';
 import 'game/sound.dart';
+import 'game/studio_splash.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -61,11 +62,13 @@ class _ArcadeAppState extends State<ArcadeApp> with WidgetsBindingObserver {
       theme: ThemeData(useMaterial3: true, brightness: Brightness.dark, colorSchemeSeed: const Color(0xFFFFC107)),
       builder: (ctx, child) => Directionality(textDirection: TextDirection.rtl, child: child!),
       home: Scaffold(
-        body: Stack(
-          children: [
-            GameWidget(game: game),
-            ArcadeUI(wd: widget.wd),
-          ],
+        body: StudioSplash(
+          child: Stack(
+            children: [
+              GameWidget(game: game),
+              ArcadeUI(wd: widget.wd),
+            ],
+          ),
         ),
       ),
     );
