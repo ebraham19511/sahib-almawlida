@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'arcade/game.dart';
 import 'arcade/ui.dart';
 import 'arcade/world.dart';
+import 'game/ads.dart';
 import 'game/music.dart';
 import 'game/sound.dart';
 import 'game/studio_splash.dart';
@@ -17,6 +18,7 @@ Future<void> main() async {
   wd.onSfx = (n) => Sfx.play(n);
   wd.onMusic = (n) => Music.play(n);
   await wd.loadProgress();
+  Ads.init();
   runApp(ArcadeApp(wd: wd));
 }
 
