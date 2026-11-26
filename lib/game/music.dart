@@ -1,5 +1,7 @@
 import 'package:audioplayers/audioplayers.dart';
 
+import 'sound.dart';
+
 /// موسيقى مستمرة تلف (loop): music_main و music_boss
 class Music {
   static bool enabled = true;
@@ -20,10 +22,13 @@ class Music {
     try {
       if (!_ready) {
         await _p.setReleaseMode(ReleaseMode.loop);
+        try {
+          await _p.setAudioContext(mixContext);
+        } catch (_) {}
         _ready = true;
       }
       await _p.stop();
-      await _p.play(AssetSource('audio/$name.ogg'), volume: 0.45);
+      await _p.play(AssetSource('audio/$name.ogg'), volume: 0.22, ctx: mixContext);
     } catch (_) {}
   }
 
