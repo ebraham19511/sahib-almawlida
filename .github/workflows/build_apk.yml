@@ -21,11 +21,19 @@ jobs:
           channel: stable
           cache: true
 
+      # يولّد مجلد android تلقائياً (ما يمس ملفات lib)
       - name: Create Android platform
         run: |
           flutter create . --platforms=android --org iq.almawlida --project-name sahib_almawlida
           rm -rf test
           sed -i 's/android:label="sahib_almawlida"/android:label="صاحب المولدة"/' android/app/src/main/AndroidManifest.xml
+
+      # أيقونة التطبيق (إذا موجودة بالمشروع)
+      - name: App icon
+        run: |
+          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            if [ -f icon-$d.png ]; then cp icon-$d.png android/app/src/main/res/mipmap-$d/ic_launcher.png; fi
+          done
 
       - run: flutter pub get
 
