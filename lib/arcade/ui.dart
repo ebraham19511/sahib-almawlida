@@ -895,8 +895,8 @@ class ShopPage extends StatelessWidget {
   }
 
   Widget _cosTile(CosItem it) {
-    final owned = wd.cos.owned.contains(it.id);
-    final on = wd.cos.equipped[it.kind] == it.id;
+    final owned = wd.looks.owned.contains(it.id);
+    final on = wd.looks.equipped[it.kind] == it.id;
     final can = !owned && wd.coins >= it.cost;
     return SizedBox(
       width: 104,

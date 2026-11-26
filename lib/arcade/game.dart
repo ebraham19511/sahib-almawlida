@@ -799,7 +799,7 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     c.drawImageRect(img, Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()), Rect.fromLTWH(-ww / 2, -hh, ww, hh),
         wd.stun > 0 ? _heroHurt : _heroPaint);
     // القبعة من المتجر
-    final hat = wd.cos.eq('hat');
+    final hat = wd.looks.eq('hat');
     if (hat.id != 'hat0') _say(c, hat.icon, Offset(ww * 0.04, -hh * 0.93), h * 0.5, Colors.white);
     c.restore();
   }
@@ -883,7 +883,7 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
       ..strokeWidth = 2.5;
     // ذيل
     final tail = RRect.fromRectAndRadius(Rect.fromLTWH(-s * 1.05, -s * 0.07, s * 0.75, s * 0.14), Radius.circular(s * 0.07));
-    final hc = Color(wd.cos.eq('heli').color);
+    final hc = Color(wd.looks.eq('heli').color);
     c.drawRRect(tail, Paint()..color = Color.lerp(hc, Colors.black, 0.15)!);
     c.drawRRect(tail, ink);
     final fin = Rect.fromCenter(center: Offset(-s * 1.0, 0), width: s * 0.12, height: s * 0.45);
@@ -921,7 +921,7 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
   String _truckTintId = '';
   Paint _truckP = Paint();
   Paint _truckPaint() {
-    final it = wd.cos.eq('truck');
+    final it = wd.looks.eq('truck');
     if (it.id != _truckTintId) {
       _truckTintId = it.id;
       _truckP = Paint()..filterQuality = FilterQuality.none;

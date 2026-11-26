@@ -371,7 +371,7 @@ class ArcadeWorld extends ChangeNotifier {
   final List<Walker> walkers = [];
   final List<Greeter> greeters = [];
   final DailyMissions missions = DailyMissions();
-  final Cosmetics cos = Cosmetics();
+  final Cosmetics looks = Cosmetics(); // الأشكال (مو cos حتى ما يتعارض ويا دالة cos)
   final List<Thief> thieves = [];
   final List<Thug> thugs = [];
   final List<Puddle> puddles = [];
@@ -470,7 +470,7 @@ class ArcadeWorld extends ChangeNotifier {
       }
       coins = p.getInt('coins') ?? 0;
       await missions.load(p);
-      await cos.load(p);
+      await looks.load(p);
       extraHearts = p.getInt('xhearts') ?? 0;
       final u = p.getStringList('upg');
       if (u != null) {
@@ -491,7 +491,7 @@ class ArcadeWorld extends ChangeNotifier {
       await p.setInt('xhearts', extraHearts);
       await p.setStringList('upg', upg.map((e) => '$e').toList());
       await missions.save(p);
-      await cos.save(p);
+      await looks.save(p);
     } catch (_) {}
   }
 
@@ -909,7 +909,7 @@ class ArcadeWorld extends ChangeNotifier {
     } else {
       _slide(player, dir * sp, riding ? 0.38 : radius, (p) => player = p);
     }
-    final trail = cos.eq('trail');
+    final trail = looks.eq('trail');
     if (trail.id != 'trail0' && !flying && _rnd.nextDouble() < 0.55) {
       particles.add(Particle(player + Offset((_rnd.nextDouble() - 0.5) * 0.3, 0.2), Offset(-dir.dx, -dir.dy) * 0.8 + const Offset(0, -0.5), trail.color, 0.5, 0.06));
     }
@@ -988,11 +988,11 @@ class ArcadeWorld extends ChangeNotifier {
   }
 
   bool buyCos(String id) {
-    final it = cos.item(id);
-    if (cos.owned.contains(id) || coins < it.cost) return false;
+    final it = looks.item(id);
+    if (looks.owned.contains(id) || coins < it.cost) return false;
     coins -= it.cost;
-    cos.owned.add(id);
-    cos.equipped[it.kind] = id;
+    looks.owned.add(id);
+    looks.equipped[it.kind] = id;
     sfx('coin');
     _saveProgress();
     notifyListeners();
@@ -1000,8 +1000,8 @@ class ArcadeWorld extends ChangeNotifier {
   }
 
   void equipCos(String id) {
-    if (!cos.owned.contains(id)) return;
-    cos.equipped[cos.item(id).kind] = id;
+    if (!looks.owned.contains(id)) return;
+    looks.equipped[looks.item(id).kind] = id;
     sfx('kick');
     _saveProgress();
     notifyListeners();
