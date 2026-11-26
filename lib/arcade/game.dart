@@ -46,6 +46,10 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
 
   // صور المدينة (Kenney RPG Urban Pack - CC0)
   ui.Image? _sheet;
+  ui.Image? _face; // صورة وجه اللاعب
+  final Paint _smooth = Paint()
+    ..filterQuality = FilterQuality.high
+    ..isAntiAlias = true;
   final Paint _px = Paint()
     ..filterQuality = FilterQuality.none
     ..isAntiAlias = false;
@@ -101,6 +105,11 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
       _sheet = await game.images.load('city.png');
     } catch (_) {
       _sheet = null;
+    }
+    try {
+      _face = await game.images.load('player_face.png');
+    } catch (_) {
+      _face = null; // إذا الصورة مو موجودة نرجع للشخصية القديمة
     }
   }
 
@@ -593,8 +602,12 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
         ..strokeWidth = 3,
     );
     final dir = Offset(cos(wd.face), sin(wd.face));
-    final frame = _charFrame(266, dir, moving, wd.clock * (wd.boostTimer > 0 ? 1.6 : 1.0));
-    _drawChar(c, frame, p.translate(0, h * 0.18), h, wd.stun > 0 ? _hurtPaint : null);
+    if (_face != null) {
+      _photoChar(c, p.translate(0, h * 0.18), h, moving);
+    } else {
+      final frame = _charFrame(266, dir, moving, wd.clock * (wd.boostTimer > 0 ? 1.6 : 1.0));
+      _drawChar(c, frame, p.translate(0, h * 0.18), h, wd.stun > 0 ? _hurtPaint : null);
+    }
     if (wd.stun > 0) _say(c, '💫', p.translate(0, -h * 0.95), tile * 0.4, Colors.white);
     // حركة الضربة
     if (wd.attackT > 0) {
@@ -607,6 +620,58 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
         ..strokeCap = StrokeCap.round);
       _say(c, '👊', c0 + dir * tile * 0.35 * k, tile * 0.45, Colors.white);
     }
+  }
+
+  /// وجه اللاعب بدائرة ذهبية
+  void _faceCircle(Canvas c, Offset center, double r) {
+    c.drawCircle(center.translate(0, r * 0.12), r * 1.08, Paint()..color = const Color(0x66000000));
+    final img = _face!;
+    c.drawImageRect(img, Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()), Rect.fromCircle(center: center, radius: r), _smooth);
+    if (wd.stun > 0) c.drawCircle(center, r, Paint()..color = const Color(0x66FF1744));
+    c.drawCircle(
+      center,
+      r,
+      Paint()
+        ..color = const Color(0xFFFFC107)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = max(2.5, r * 0.1),
+    );
+  }
+
+  /// اللاعب بصورته: جسم عامل (صدرية برتقالية) وراسه الصورة
+  void _photoChar(Canvas c, Offset feet, double h, bool moving) {
+    final walk = moving ? sin(wd.clock * (wd.boostTimer > 0 ? 22 : 15)) : 0.0;
+    final bob = moving ? walk.abs() * h * 0.04 : 0.0;
+    c.drawOval(Rect.fromCenter(center: feet, width: h * 0.7, height: h * 0.24), Paint()..color = const Color(0x66000000));
+    final ink = Paint()
+      ..color = const Color(0xFF0B0F14)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    // رجلين
+    for (final side in [-1.0, 1.0]) {
+      final leg = RRect.fromRectAndRadius(
+        Rect.fromCenter(center: feet.translate(side * h * 0.1, -h * 0.12 + side * walk * h * 0.05), width: h * 0.13, height: h * 0.24),
+        Radius.circular(h * 0.05),
+      );
+      c.drawRRect(leg, Paint()..color = const Color(0xFF283593));
+      c.drawRRect(leg, ink);
+    }
+    // جسم
+    final body = Rect.fromCenter(center: feet.translate(0, -h * 0.36 - bob), width: h * 0.5, height: h * 0.34);
+    for (final side in [-1.0, 1.0]) {
+      final arm = feet.translate(side * h * 0.29, -h * 0.36 - bob - side * walk * h * 0.05);
+      c.drawCircle(arm, h * 0.075, Paint()..color = const Color(0xFFD7A27A));
+      c.drawCircle(arm, h * 0.075, ink);
+    }
+    final rb = RRect.fromRectAndRadius(body, Radius.circular(h * 0.1));
+    c.drawRRect(rb, Paint()..color = const Color(0xFFFF8F00));
+    c.drawRect(Rect.fromLTWH(body.left, body.center.dy - h * 0.02, body.width, h * 0.05), Paint()..color = const Color(0xFFFFF59D));
+    c.drawLine(body.topCenter, body.bottomCenter, Paint()
+      ..color = const Color(0x55000000)
+      ..strokeWidth = 2);
+    c.drawRRect(rb, ink);
+    // الراس = الصورة
+    _faceCircle(c, feet.translate(0, -h * 0.82 - bob), h * 0.4);
   }
 
   /// سيارة الشغل (بيك أب) تدور على أي اتجاه
@@ -626,7 +691,11 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     c.drawImageRect(_sheet!, src, dst, _px);
     c.restore();
     if (driving) {
-      _say(c, '👷', p.translate(0, -tile * 0.15), tile * 0.32, Colors.white);
+      if (_face != null) {
+        _faceCircle(c, p.translate(0, -tile * 0.55), tile * 0.3);
+      } else {
+        _say(c, '👷', p.translate(0, -tile * 0.15), tile * 0.32, Colors.white);
+      }
     } else if (wd.nearTruck) {
       _say(c, '🔑', p.translate(0, -tile * 0.8 - sin(wd.clock * 8) * 4), tile * 0.45, Colors.white);
     }
