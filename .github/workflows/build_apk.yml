@@ -3,7 +3,7 @@ name: build-apk
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, ads-test]
 
 jobs:
   build:
@@ -61,5 +61,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: sahib-almawlida-apk
+          name: sahib-almawlida-apk-${{ github.ref_name }}
           path: build/app/outputs/flutter-apk/*-release.apk
