@@ -29,6 +29,12 @@ jobs:
           sed -i 's/android:label="sahib_almawlida"/android:label="صاحب المولدة"/' android/app/src/main/AndroidManifest.xml
           # رقم تطبيق AdMob (هسه رقم التجربة الرسمي، بدّله برقمك)
           sed -i 's#</application>#<meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="ca-app-pub-3940256099942544~3347511713"/></application>#' android/app/src/main/AndroidManifest.xml
+          # نتأكد إن رقم AdMob انضاف (بدونه التطبيق يطب أول ما ينفتح)
+          echo "----- AndroidManifest -----"
+          cat android/app/src/main/AndroidManifest.xml
+          grep -q "gms.ads.APPLICATION_ID" android/app/src/main/AndroidManifest.xml || (echo "AdMob APPLICATION_ID missing!" && exit 1)
+          echo "----- app build.gradle -----"
+          cat android/app/build.gradle.kts 2>/dev/null || cat android/app/build.gradle
 
       # نطفي فحص Lint بالـ release (يطيح ويا مكتبة الإعلانات وما يأثر على اللعبة)
       - name: Disable release lint
