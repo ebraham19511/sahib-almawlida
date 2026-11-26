@@ -10,7 +10,7 @@ class Sfx {
   static bool enabled = true;
   static final Map<String, DateTime> _last = {};
 
-  static void play(String name, {double volume = 0.7}) {
+  static void play(String name, {double volume = 0.3}) {
     if (!enabled) return;
     final now = DateTime.now();
     final prev = _last[name];
