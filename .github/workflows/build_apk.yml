@@ -47,6 +47,81 @@ jobs:
             grep -n -A4 "^android {" android/app/build.gradle
           fi
 
+      # (فرع التجربة) يمسك سبب الطب ويعرضه بنافذة بالمرة الجاية
+      - name: Crash catcher
+        run: |
+          MA=$(find android/app/src/main/kotlin -name MainActivity.kt | head -1)
+          DIR=$(dirname "$MA")
+          PKG=$(grep -m1 '^package' "$MA" | sed 's/package //')
+          echo "MainActivity: $MA  package: $PKG"
+          cat > "$DIR/CrashApp.kt" <<KT
+          package $PKG
+
+          import android.app.Application
+          import android.content.ComponentName
+          import android.content.Context
+          import android.content.pm.PackageManager
+          import java.io.File
+
+          class CrashApp : Application() {
+              override fun attachBaseContext(base: Context) {
+                  super.attachBaseContext(base)
+                  val prev = Thread.getDefaultUncaughtExceptionHandler()
+                  Thread.setDefaultUncaughtExceptionHandler { t, e ->
+                      try {
+                          File(base.filesDir, "crash.txt").writeText(android.util.Log.getStackTraceString(e))
+                          base.packageManager.setComponentEnabledSetting(
+                              ComponentName(base.packageName, "com.google.android.gms.ads.MobileAdsInitProvider"),
+                              PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
+                      } catch (x: Throwable) {}
+                      prev?.uncaughtException(t, e)
+                  }
+              }
+          }
+          KT
+          cat > "$MA" <<KT
+          package $PKG
+
+          import android.app.AlertDialog
+          import android.content.ClipData
+          import android.content.ClipboardManager
+          import android.content.Context
+          import android.os.Bundle
+          import io.flutter.embedding.android.FlutterActivity
+          import io.flutter.embedding.engine.FlutterEngine
+          import java.io.File
+
+          class MainActivity : FlutterActivity() {
+              private var crashText: String? = null
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  val f = File(filesDir, "crash.txt")
+                  if (f.exists()) {
+                      crashText = f.readText()
+                      f.delete()
+                  }
+                  super.onCreate(savedInstanceState)
+                  val t = crashText ?: return
+                  AlertDialog.Builder(this)
+                      .setTitle("سبب الطب")
+                      .setMessage(t.take(4000))
+                      .setPositiveButton("نسخ") { _, _ ->
+                          val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                          cm.setPrimaryClip(ClipData.newPlainText("crash", t))
+                      }
+                      .show()
+              }
+
+              override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+                  // إذا طبت قبل، نشغل بدون الإضافات حتى نگدر نعرض الخطأ
+                  if (crashText == null) super.configureFlutterEngine(flutterEngine)
+              }
+          }
+          KT
+          sed -i 's#android:name="\${applicationName}"#android:name=".CrashApp"#' android/app/src/main/AndroidManifest.xml
+          grep -n "CrashApp" android/app/src/main/AndroidManifest.xml
+          cat "$MA"
+
       # أيقونة التطبيق (إذا موجودة بالمشروع)
       - name: App icon
         run: |
