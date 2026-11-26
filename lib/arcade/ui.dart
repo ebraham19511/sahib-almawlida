@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../game/music.dart';
+import '../game/sound.dart';
 import 'game.dart';
 import 'world.dart';
 
@@ -77,6 +79,7 @@ class ArcadeUI extends StatelessWidget {
                     ),
                   ),
                 ),
+              Positioned(right: 16, bottom: 34, child: _Actions(wd: wd)),
               if (wd.overloadOn && wd.nearGenerator)
                 Positioned(
                   left: 0,
@@ -92,6 +95,8 @@ class ArcadeUI extends StatelessWidget {
                 child: _Card(children: [
                   const Text('⏸️', style: TextStyle(fontSize: 60)),
                   const SizedBox(height: 16),
+                  const _SoundToggles(),
+                  const SizedBox(height: 12),
                   Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                     _Big(icon: Icons.home_rounded, onTap: wd.toMenu),
                     const SizedBox(width: 14),
@@ -123,19 +128,19 @@ class _Menu extends StatelessWidget {
     return SafeArea(
       child: Column(
         children: [
-          const SizedBox(height: 30),
-          const Text('⚡', style: TextStyle(fontSize: 64)),
+          const Align(alignment: AlignmentDirectional.topEnd, child: Padding(padding: EdgeInsets.all(8), child: _SoundToggles())),
+          const Text('⚡', style: TextStyle(fontSize: 54)),
           const Text('صاحب المولدة',
               style: TextStyle(fontSize: 40, fontWeight: FontWeight.w900, color: _gold, shadows: [Shadow(blurRadius: 12, color: Colors.black)])),
           const SizedBox(height: 6),
           Text('⭐ ${wd.totalStars} / ${levels.length * 3}', style: const TextStyle(fontSize: 18, color: Colors.white70)),
-          const SizedBox(height: 26),
+          const SizedBox(height: 16),
           Expanded(
             child: GridView.count(
-              crossAxisCount: 3,
-              padding: const EdgeInsets.symmetric(horizontal: 28),
-              mainAxisSpacing: 16,
-              crossAxisSpacing: 16,
+              crossAxisCount: 4,
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
               children: [
                 for (var i = 0; i < levels.length; i++) _LevelButton(wd: wd, index: i),
               ],
@@ -157,7 +162,7 @@ class _LevelButton extends StatelessWidget {
     final open = wd.unlocked(index);
     final st = wd.stars[index];
     return Material(
-      color: open ? const Color(0xFF2E7D32) : const Color(0xFF37474F),
+      color: open ? (levels[index].boss > 0 ? const Color(0xFFB71C1C) : const Color(0xFF2E7D32)) : const Color(0xFF37474F),
       borderRadius: BorderRadius.circular(22),
       elevation: open ? 6 : 0,
       child: InkWell(
@@ -167,19 +172,19 @@ class _LevelButton extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             open
-                ? Text('${index + 1}', style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900))
-                : const Icon(Icons.lock_rounded, size: 34, color: Colors.white38),
+                ? Text(levels[index].boss > 0 ? '👹' : '${index + 1}', style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900))
+                : const Icon(Icons.lock_rounded, size: 26, color: Colors.white38),
             if (open)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
                 child: Text(levels[index].title,
-                    maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: Colors.white70)),
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 9, color: Colors.white70)),
               ),
             const SizedBox(height: 2),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                for (var k = 0; k < 3; k++) Icon(Icons.star_rounded, size: 18, color: k < st ? _gold : Colors.white24),
+                for (var k = 0; k < 3; k++) Icon(Icons.star_rounded, size: 14, color: k < st ? _gold : Colors.white24),
               ],
             ),
           ],
@@ -226,6 +231,22 @@ class _Hud extends StatelessWidget {
             Row(
               children: [
                 Text('المرحلة ${wd.level + 1}', style: const TextStyle(fontSize: 13, color: Colors.white70)),
+                const SizedBox(width: 10),
+                // صحة اللاعب
+                const Text('💪', style: TextStyle(fontSize: 14)),
+                const SizedBox(width: 4),
+                SizedBox(
+                  width: 70,
+                  height: 10,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: LinearProgressIndicator(
+                      value: (wd.hp / 100).clamp(0.0, 1.0),
+                      backgroundColor: Colors.black54,
+                      color: wd.hp > 50 ? const Color(0xFF69F0AE) : (wd.hp > 25 ? const Color(0xFFFFB300) : const Color(0xFFFF1744)),
+                    ),
+                  ),
+                ),
                 const Spacer(),
                 if (wd.combo > 1)
                   Container(
@@ -257,8 +278,12 @@ class _Result extends StatelessWidget {
     final hasNext = wd.level + 1 < levels.length && wd.unlocked(wd.level + 1);
     return _Dim(
       child: _Card(children: [
-        Text(won ? 'عاشت إيدك! 🎉' : (wd.hearts <= 0 ? 'الناس زعلت 😡' : 'قريب! 💪'),
-            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900)),
+        Text(won ? 'عاشت إيدك! 🎉' : 'قريب! 💪', style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900)),
+        if (!won && wd.lostReason.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(wd.lostReason, textAlign: TextAlign.center, style: const TextStyle(fontSize: 17, color: Colors.white70)),
+          ),
         const SizedBox(height: 12),
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -279,7 +304,7 @@ class _Result extends StatelessWidget {
         Text('⭐ ${wd.score}', style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: _gold)),
         if (wd.newBest) const Text('🏆 رقم قياسي!', style: TextStyle(fontSize: 18, color: Color(0xFF69F0AE))),
         const SizedBox(height: 6),
-        Text('⚡ ${wd.fixes}    👮 ${wd.caught}', style: const TextStyle(fontSize: 20, color: Colors.white70)),
+        Text('⚡ ${wd.fixes}    👮 ${wd.caught}    👊 ${wd.beaten}', style: const TextStyle(fontSize: 20, color: Colors.white70)),
         const SizedBox(height: 18),
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
           _Big(icon: Icons.home_rounded, onTap: wd.toMenu),
@@ -391,5 +416,88 @@ class _CoolButton extends StatelessWidget {
             child: Text('❄️\nاضغط!', textAlign: TextAlign.center, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
           ),
         ),
+      );
+}
+
+/// أزرار الفعل: ضربة، اركب/انزل
+class _Actions extends StatelessWidget {
+  final ArcadeWorld wd;
+  const _Actions({required this.wd});
+
+  @override
+  Widget build(BuildContext context) {
+    final showRide = wd.cfg.vehicle && (wd.riding || wd.nearTruck);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (showRide)
+          _ActionBtn(
+            label: wd.riding ? '🚶\nانزل' : '🚙\nاركب',
+            color: const Color(0xFF43A047),
+            onTap: wd.toggleRide,
+          ),
+        if (showRide && wd.canFight) const SizedBox(height: 12),
+        if (wd.canFight && !wd.riding) _ActionBtn(label: '👊', color: const Color(0xFFD84315), onTap: wd.attack, big: true),
+      ],
+    );
+  }
+}
+
+class _ActionBtn extends StatelessWidget {
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+  final bool big;
+  const _ActionBtn({required this.label, required this.color, required this.onTap, this.big = false});
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: color.withAlpha(230),
+        shape: const CircleBorder(side: BorderSide(color: Colors.white70, width: 2)),
+        elevation: 8,
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: () {},
+          onTapDown: (_) => onTap(),
+          child: SizedBox(
+            width: big ? 84 : 70,
+            height: big ? 84 : 70,
+            child: Center(
+              child: Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: big ? 38 : 15, fontWeight: FontWeight.w900, height: 1.1)),
+            ),
+          ),
+        ),
+      );
+}
+
+/// تشغيل/إطفاء الموسيقى والأصوات
+class _SoundToggles extends StatefulWidget {
+  const _SoundToggles();
+
+  @override
+  State<_SoundToggles> createState() => _SoundTogglesState();
+}
+
+class _SoundTogglesState extends State<_SoundToggles> {
+  @override
+  Widget build(BuildContext context) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _Round(
+            icon: Music.enabled ? Icons.music_note_rounded : Icons.music_off_rounded,
+            onTap: () {
+              Music.setEnabled(!Music.enabled);
+              setState(() {});
+            },
+          ),
+          const SizedBox(width: 8),
+          _Round(
+            icon: Sfx.enabled ? Icons.volume_up_rounded : Icons.volume_off_rounded,
+            onTap: () {
+              Sfx.enabled = !Sfx.enabled;
+              setState(() {});
+            },
+          ),
+        ],
       );
 }

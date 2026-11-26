@@ -36,7 +36,7 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
   static const double viewWidth = 6.4; // كم مربع يبين بعرض الشاشة
 
   double tile = 60;
-  Offset cam = ArcadeWorld.startPos;
+  Offset cam = const Offset(8, 12);
   Offset _sc = Offset.zero; // مركز الشاشة
   Rect view = Rect.zero; // اللي يبين من المدينة
   Offset? _joyStart;
@@ -55,6 +55,40 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
   final Paint _hurtPaint = Paint()
     ..filterQuality = FilterQuality.none
     ..colorFilter = const ColorFilter.mode(Color(0xFFFF8A80), BlendMode.modulate);
+
+  final Paint _outline = Paint()
+    ..filterQuality = FilterQuality.none
+    ..colorFilter = const ColorFilter.mode(Color(0xFF0B0F14), BlendMode.srcIn);
+  final Paint _thugPaint = Paint()
+    ..filterQuality = FilterQuality.none
+    ..colorFilter = const ColorFilter.mode(Color(0xFFFFE6DC), BlendMode.modulate);
+  final Paint _bossPaint = Paint()
+    ..filterQuality = FilterQuality.none
+    ..colorFilter = const ColorFilter.mode(Color(0xFFFFC4C4), BlendMode.modulate);
+  final Paint _flashPaint = Paint()
+    ..filterQuality = FilterQuality.none
+    ..colorFilter = const ColorFilter.mode(Color(0xFFFFFFFF), BlendMode.srcIn);
+
+  // ألوان السطوح تتغير من مرحلة لمرحلة حتى كل مرحلة شكلها غير
+  static const _roofTints = [
+    Color(0xFFFFFFFF), Color(0xFFFFC9B0), Color(0xFFC8E6C9), Color(0xFFBBDEFB), Color(0xFFFFF59D), Color(0xFFE1BEE7), Color(0xFFFFCCBC), Color(0xFFB2DFDB),
+  ];
+  int _tintLevel = -1;
+  final List<Paint> _roofPaints = [];
+
+  Paint _roofPaint(int style) {
+    if (_tintLevel != wd.level) {
+      _tintLevel = wd.level;
+      _roofPaints.clear();
+      for (var k = 0; k < 3; k++) {
+        final c = _roofTints[(wd.level * 3 + k * 5) % _roofTints.length];
+        _roofPaints.add(Paint()
+          ..filterQuality = FilterQuality.none
+          ..colorFilter = ColorFilter.mode(c, BlendMode.modulate));
+      }
+    }
+    return _roofPaints[style % _roofPaints.length];
+  }
 
   // مكان السيارات بالصورة (بكسل)
   static const _carFront = [Rect.fromLTWH(244, 234, 24, 22), Rect.fromLTWH(245, 266, 22, 22), Rect.fromLTWH(336, 236, 16, 21)];
@@ -102,8 +136,8 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     final halfW = _sc.dx / tile;
     final up = _sc.dy / tile, down = (size.y - _sc.dy) / tile;
     const m = 1.0; // نخلي شوية برّا المدينة يبين
-    final cx = cam.dx.clamp(halfW - m, ArcadeWorld.w - halfW + m).toDouble();
-    final cy = cam.dy.clamp(up - m, ArcadeWorld.h - down + m).toDouble();
+    final cx = cam.dx.clamp(halfW - m, wd.w - halfW + m).toDouble();
+    final cy = cam.dy.clamp(up - m, wd.h - down + m).toDouble();
     cam = Offset(cx, cy);
     view = Rect.fromLTRB(cx - halfW, cy - up, cx + halfW, cy + down);
   }
@@ -170,19 +204,19 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     tp.paint(c, center - Offset(tp.width / 2, tp.height / 2));
   }
 
-  Rect _src(int i) => Rect.fromLTWH((i % 27) * 16.0 + 0.05, (i ~/ 27) * 16.0 + 0.05, 15.9, 15.9);
+  Rect _src(int i) => Rect.fromLTWH((i % 27) * 16.0, (i ~/ 27) * 16.0, 16, 16);
 
   void _spr(Canvas c, int i, Rect dst, [Paint? p]) => c.drawImageRect(_sheet!, _src(i), dst, p ?? _px);
 
   /// مربع بتسع قطع (زوايا + حواف + وسط)
-  void _nine(Canvas c, int tl, Rect r, double s) {
+  void _nine(Canvas c, int tl, Rect r, double s, [Paint? paint]) {
     final cols = max(2, (r.width / s).round());
     final rows = max(2, (r.height / s).round());
     final cw = r.width / cols, rh = r.height / rows;
     for (var j = 0; j < rows; j++) {
       for (var i = 0; i < cols; i++) {
         final idx = tl + (j == 0 ? 0 : (j == rows - 1 ? 54 : 27)) + (i == 0 ? 0 : (i == cols - 1 ? 2 : 1));
-        _spr(c, idx, Rect.fromLTWH(r.left + i * cw, r.top + j * rh, cw + 0.7, rh + 0.7));
+        _spr(c, idx, Rect.fromLTWH(r.left + i * cw, r.top + j * rh, cw + 0.7, rh + 0.7), paint);
       }
     }
   }
@@ -202,6 +236,9 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
       c.translate((_rnd.nextDouble() - 0.5) * 12 * wd.shake, (_rnd.nextDouble() - 0.5) * 12 * wd.shake);
     }
     _ground(c);
+    for (final pd in wd.puddles) {
+      _puddle(c, pd);
+    }
     _generatorDraw(c);
     for (final hs in wd.houses) {
       if (_visible(hs.rect)) _house(c, hs);
@@ -212,11 +249,16 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     for (final car in wd.cars) {
       if (_visible(car.rect)) _car(c, car);
     }
+    if (wd.phase != Phase.menu && wd.cfg.vehicle && !wd.riding) _truck(c, wd.truck, wd.truckFace, false);
     if (wd.phase != Phase.menu) {
+      for (final t in wd.thugs) {
+        if (t.slamAt != null) _slamWarn(c, t);
+      }
       // الشخصيات بالترتيب حسب الارتفاع حتى اللي جوه يطلع گدام
       final chars = <MapEntry<double, VoidCallback>>[
         MapEntry(wd.player.dy, () => _player(c)),
         for (final t in wd.thieves) MapEntry(t.pos.dy, () => _thief(c, t)),
+        for (final t in wd.thugs) MapEntry(t.pos.dy, () => _thug(c, t)),
       ]..sort((a, b) => a.key.compareTo(b.key));
       for (final e in chars) {
         e.value();
@@ -227,8 +269,11 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
       c.drawCircle(P(p.pos), p.size * tile * (0.4 + p.life), Paint()..color = Color(p.color));
     }
     final menu = wd.phase == Phase.menu;
-    if (menu || wd.cfg.night) _night(c, menu ? 0.55 : 0.86);
-    if (wd.stormT > 0) _rain(c);
+    if (!menu && wd.cfg.theme == 1) {
+      c.drawRect(Offset.zero & Size(size.x, size.y), Paint()..color = const Color(0x40FF6E40));
+    }
+    if (menu || wd.cfg.night) _night(c, menu ? 0.55 : 0.84);
+    if (wd.stormT > 0 || (!menu && wd.cfg.rain)) _rain(c);
     for (final hs in wd.houses) {
       if (!hs.lit && _visible(hs.rect)) _houseAlarm(c, hs);
     }
@@ -249,6 +294,8 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     if (wd.phase == Phase.playing || wd.phase == Phase.countdown) {
       _arrows(c);
       if (wd.overloadOn) _heatBar(c);
+      final b = wd.boss;
+      if (b != null) _bossBar(c, b);
       if (wd.cfg.fuelDrain > 0) _fuelBar(c);
     }
     _joystick(c);
@@ -262,14 +309,14 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     for (var gy = y0; gy <= y1; gy++) {
       for (var gx = x0; gx <= x1; gx++) {
         final wx = gx * s, wy = gy * s;
-        final inside = wx >= 0 && wy >= 0 && wx < ArcadeWorld.w && wy < ArcadeWorld.h;
+        final inside = wx >= 0 && wy >= 0 && wx < wd.w && wy < wd.h;
         final o = P(Offset(wx, wy));
         _spr(c, inside ? 441 : 28, Rect.fromLTWH(o.dx, o.dy, ts + 0.7, ts + 0.7));
       }
     }
     // حافة المدينة
     c.drawRect(
-      R(const Rect.fromLTWH(0, 0, ArcadeWorld.w, ArcadeWorld.h)),
+      R(Rect.fromLTWH(0, 0, wd.w, wd.h)),
       Paint()
         ..color = const Color(0xFFB0B4C8)
         ..style = PaintingStyle.stroke
@@ -279,24 +326,24 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     final dash = Paint()
       ..color = const Color(0xCCFFFFFF)
       ..strokeWidth = tile * 0.06;
-    for (var i = 1; i < ArcadeWorld.roadYs.length - 1; i++) {
-      final y = ArcadeWorld.roadYs[i];
+    for (var i = 1; i < wd.roadYs.length - 1; i++) {
+      final y = wd.roadYs[i];
       if (y < view.top - 1 || y > view.bottom + 1) continue;
-      for (var x = max(0.0, (view.left / 0.8).floor() * 0.8); x < min(ArcadeWorld.w, view.right + 1); x += 0.8) {
-        if (ArcadeWorld.roadXs.any((rx) => (x + 0.2 - rx).abs() < 1.0)) continue;
+      for (var x = max(0.0, (view.left / 0.8).floor() * 0.8); x < min(wd.w, view.right + 1); x += 0.8) {
+        if (wd.roadXs.any((rx) => (x + 0.2 - rx).abs() < 1.0)) continue;
         c.drawLine(P(Offset(x, y)), P(Offset(x + 0.4, y)), dash);
       }
     }
-    for (var i = 1; i < ArcadeWorld.roadXs.length - 1; i++) {
-      final x = ArcadeWorld.roadXs[i];
+    for (var i = 1; i < wd.roadXs.length - 1; i++) {
+      final x = wd.roadXs[i];
       if (x < view.left - 1 || x > view.right + 1) continue;
-      for (var y = max(0.0, (view.top / 0.8).floor() * 0.8); y < min(ArcadeWorld.h, view.bottom + 1); y += 0.8) {
-        if (ArcadeWorld.roadYs.any((ry) => (y + 0.2 - ry).abs() < 1.0)) continue;
+      for (var y = max(0.0, (view.top / 0.8).floor() * 0.8); y < min(wd.h, view.bottom + 1); y += 0.8) {
+        if (wd.roadYs.any((ry) => (y + 0.2 - ry).abs() < 1.0)) continue;
         c.drawLine(P(Offset(x, y)), P(Offset(x, y + 0.4)), dash);
       }
       // عبّارات مشاة قبل كل تقاطع
-      for (var j = 1; j < ArcadeWorld.roadYs.length - 1; j++) {
-        final y = ArcadeWorld.roadYs[j] - 1.45;
+      for (var j = 1; j < wd.roadYs.length - 1; j++) {
+        final y = wd.roadYs[j] - 1.45;
         if (y < view.top - 1 || y > view.bottom + 1) continue;
         for (var k = 0; k < 3; k++) {
           _spr(c, 434, R(Rect.fromLTWH(x - 0.8 + k * 0.533, y, 0.54, 0.5)));
@@ -307,7 +354,30 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     for (final hs in wd.houses) {
       if (_visible(hs.rect)) _nine(c, 8, R(hs.rect.inflate(0.25)), tile * 0.4);
     }
-    if (_visible(ArcadeWorld.plaza)) _nine(c, 8, R(ArcadeWorld.plaza.inflate(0.25)), tile * 0.4);
+    if (_visible(wd.plaza)) _nine(c, 8, R(wd.plaza.inflate(0.25)), tile * 0.4);
+    // حدايق
+    var pi2 = 0;
+    for (final pk in wd.parks) {
+      pi2++;
+      if (!_visible(pk)) continue;
+      final r = R(pk.inflate(0.25));
+      _nine(c, 0, r, tile * 0.4);
+      if (pi2 % 2 == 0) _nine(c, 170, R(Rect.fromCenter(center: pk.center, width: 1.2, height: 0.9)), tile * 0.3);
+      final ts = tile * 0.55;
+      for (final o in [Offset(r.left + ts * 0.3, r.top + ts * 0.2), Offset(r.right - ts * 1.3, r.top + ts * 0.3), Offset(r.left + ts * 0.5, r.bottom - ts * 2.0)]) {
+        _spr(c, 260, Rect.fromLTWH(o.dx, o.dy, ts, ts));
+        _spr(c, 287, Rect.fromLTWH(o.dx, o.dy + ts, ts, ts));
+      }
+    }
+    // أعمدة كهرباء جنب المولدة
+    if (_visible(wd.plaza)) {
+      final r = R(wd.plaza);
+      final ts = tile * 0.6;
+      _spr(c, 162, Rect.fromLTWH(r.left - ts * 0.2, r.bottom - ts * 1.9, ts, ts));
+      _spr(c, 189, Rect.fromLTWH(r.left - ts * 0.2, r.bottom - ts * 0.9, ts, ts));
+      _spr(c, 162, Rect.fromLTWH(r.right - ts * 0.8, r.bottom - ts * 1.9, ts, ts));
+      _spr(c, 189, Rect.fromLTWH(r.right - ts * 0.8, r.bottom - ts * 0.9, ts, ts));
+    }
     // أشجار وأعمدة إنارة (زينة)
     var n = 0;
     for (final hs in wd.houses) {
@@ -334,7 +404,7 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     final wallH = r.height * 0.42;
     final roof = Rect.fromLTRB(r.left, r.top, r.right, r.bottom - wallH);
     final wall = Rect.fromLTRB(r.left, r.bottom - wallH, r.right, r.bottom);
-    _nine(c, hs.style % 2 == 0 ? 81 : 89, roof, tile * 0.4);
+    _nine(c, hs.style % 2 == 0 ? 81 : 89, roof, tile * 0.4, _roofPaint(hs.style));
     _spr(c, 280, Rect.fromLTWH(roof.left + tile * 0.15, roof.top + tile * 0.12, tile * 0.42, tile * 0.42));
     final brick = hs.style % 3 == 0 ? 72 : (hs.style % 3 == 1 ? 180 : 99);
     const cols = 5;
@@ -380,11 +450,11 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
   }
 
   void _generatorDraw(Canvas c) {
-    if (!_visible(ArcadeWorld.plaza)) return;
+    if (!_visible(wd.plaza)) return;
     final on = wd.generatorOn;
     final hot = wd.overloadOn;
     final shakeX = on ? sin(wd.clock * (hot ? 90 : 60)) * (hot ? 3 : 1.2) : 0.0;
-    final r = R(ArcadeWorld.generator).shift(Offset(shakeX, 0));
+    final r = R(wd.generator).shift(Offset(shakeX, 0));
     if (hot) {
       c.drawRRect(RRect.fromRectAndRadius(r.inflate(tile * (0.25 + wd.heat * 0.3)), Radius.circular(tile * 0.4)),
           Paint()..color = Color.fromARGB((60 + wd.heat * 150).round().clamp(0, 255), 255, 87, 34));
@@ -490,14 +560,27 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     return base + row * 27 + col;
   }
 
+  /// نرسم الشخصية بحجم مضبوط على البكسل (16 × عدد صحيح) حتى تطلع واضحة مو مغوشة، ونحط حولها خط أسود
   void _drawChar(Canvas c, int frame, Offset feet, double h, [Paint? p]) {
-    c.drawOval(Rect.fromCenter(center: feet, width: h * 0.6, height: h * 0.22), Paint()..color = const Color(0x66000000));
-    _spr(c, frame, Rect.fromLTWH(feet.dx - h / 2, feet.dy - h * 0.95, h, h), p);
+    final px = max(1, (h / 16).round()).toDouble();
+    final sz = px * 16;
+    final left = (feet.dx - sz / 2).roundToDouble(), top = (feet.dy - sz * 0.95).roundToDouble();
+    c.drawOval(Rect.fromCenter(center: feet, width: sz * 0.6, height: sz * 0.22), Paint()..color = const Color(0x66000000));
+    final src = _src(frame);
+    for (final o in [Offset(-px, 0), Offset(px, 0), Offset(0, -px), Offset(0, px)]) {
+      c.drawImageRect(_sheet!, src, Rect.fromLTWH(left + o.dx, top + o.dy, sz, sz), _outline);
+    }
+    c.drawImageRect(_sheet!, src, Rect.fromLTWH(left, top, sz, sz), p ?? _px);
   }
 
   void _player(Canvas c) {
     final p = P(wd.player);
-    final h = tile * 1.0;
+    if (wd.riding) {
+      if (wd.invuln > 0 && (wd.clock * 12).floor().isEven) return;
+      _truck(c, wd.player, wd.face, true);
+      return;
+    }
+    final h = tile * 1.05;
     final moving = wd.move.distance > 0.05 && wd.stun <= 0;
     if (wd.boostTimer > 0) c.drawCircle(p.translate(0, -h * 0.35), h * 0.75, Paint()..color = const Color(0x5580D8FF));
     // إذا انضرب يرمش
@@ -513,6 +596,117 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     final frame = _charFrame(266, dir, moving, wd.clock * (wd.boostTimer > 0 ? 1.6 : 1.0));
     _drawChar(c, frame, p.translate(0, h * 0.18), h, wd.stun > 0 ? _hurtPaint : null);
     if (wd.stun > 0) _say(c, '💫', p.translate(0, -h * 0.95), tile * 0.4, Colors.white);
+    // حركة الضربة
+    if (wd.attackT > 0) {
+      final k = 1 - wd.attackT / 0.18;
+      final c0 = p.translate(0, -h * 0.35) + dir * tile * 0.4;
+      c.drawArc(Rect.fromCircle(center: c0, radius: tile * (0.45 + k * 0.25)), wd.face - 1.0, 2.0, false, Paint()
+        ..color = Color.fromARGB((230 * (1 - k)).round(), 255, 255, 255)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = tile * 0.12
+        ..strokeCap = StrokeCap.round);
+      _say(c, '👊', c0 + dir * tile * 0.35 * k, tile * 0.45, Colors.white);
+    }
+  }
+
+  /// سيارة الشغل (بيك أب) تدور على أي اتجاه
+  void _truck(Canvas c, Offset world, double angle, bool driving) {
+    if (!_visible(Rect.fromCircle(center: world, radius: 1))) return;
+    final p = P(world);
+    const src = Rect.fromLTWH(272, 267, 16, 21);
+    final sc = 0.82 / 16 * tile;
+    c.save();
+    c.translate(p.dx, p.dy);
+    c.drawOval(Rect.fromCenter(center: Offset(tile * 0.06, tile * 0.1), width: tile * 1.0, height: tile * 1.0), Paint()..color = const Color(0x55000000));
+    c.rotate(angle + pi / 2);
+    final dst = Rect.fromCenter(center: Offset.zero, width: 16 * sc, height: 21 * sc);
+    if (driving) {
+      c.drawRRect(RRect.fromRectAndRadius(dst.inflate(tile * 0.08), Radius.circular(tile * 0.2)), Paint()..color = const Color(0x88FFC107));
+    }
+    c.drawImageRect(_sheet!, src, dst, _px);
+    c.restore();
+    if (driving) {
+      _say(c, '👷', p.translate(0, -tile * 0.15), tile * 0.32, Colors.white);
+    } else if (wd.nearTruck) {
+      _say(c, '🔑', p.translate(0, -tile * 0.8 - sin(wd.clock * 8) * 4), tile * 0.45, Colors.white);
+    }
+  }
+
+  void _thug(Canvas c, Thug t) {
+    if (!_visible(Rect.fromCircle(center: t.pos, radius: 1.5))) return;
+    final p = P(t.pos);
+    final h = tile * (t.boss ? 1.7 : 1.05);
+    if (t.boss) {
+      c.drawCircle(p.translate(0, -h * 0.35), h * 0.65, Paint()..color = Color.fromARGB((60 + sin(wd.clock * 6) * 30).round(), 255, 0, 0));
+    }
+    if (t.windup > 0) {
+      c.drawCircle(p.translate(0, -h * 0.35), h * 0.55, Paint()
+        ..color = const Color(0xCCFF1744)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3);
+    }
+    final paint = t.hurt > 0 ? _flashPaint : (t.boss ? _bossPaint : _thugPaint);
+    _drawChar(c, _charFrame(t.boss ? 185 : 428, t.dir, t.windup <= 0, wd.clock + t.pos.dx), p.translate(0, h * 0.2), h, paint);
+    // شريط الصحة
+    final bw = h * 0.7;
+    final bar = Rect.fromLTWH(p.dx - bw / 2, p.dy - h * 1.0, bw, t.boss ? 8 : 5);
+    c.drawRect(bar.inflate(1.5), Paint()..color = const Color(0xDD000000));
+    c.drawRect(Rect.fromLTWH(bar.left, bar.top, bw * (t.hp / t.maxHp).clamp(0.0, 1.0), bar.height), Paint()..color = const Color(0xFFFF5252));
+    if (t.boss) _say(c, '👑', p.translate(0, -h * 1.15), tile * 0.45, Colors.white);
+  }
+
+  void _slamWarn(Canvas c, Thug b) {
+    final at = b.slamAt!;
+    final k = (1 - b.slamWarn / 1.1).clamp(0.0, 1.0);
+    final center = P(at);
+    final r = tile * 1.7;
+    c.drawCircle(center, r, Paint()..color = Color.fromARGB((40 + k * 80).round(), 255, 23, 68));
+    c.drawCircle(center, r * k, Paint()..color = const Color(0x55FF1744));
+    c.drawCircle(center, r, Paint()
+      ..color = const Color(0xFFFF1744)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3);
+    _say(c, '⚠️', center, tile * 0.5, Colors.white);
+  }
+
+  void _puddle(Canvas c, Puddle pd) {
+    if (!_visible(Rect.fromCircle(center: pd.pos, radius: pd.r + 0.3))) return;
+    final r = Rect.fromCenter(center: P(pd.pos), width: pd.r * 2.2 * tile, height: pd.r * 1.5 * tile);
+    c.drawOval(r, Paint()..color = const Color(0x995C8DB8));
+    c.drawOval(r.deflate(tile * 0.08), Paint()..color = const Color(0x6690CAF9));
+    if (pd.state == 1 && (wd.clock * 10).floor().isEven) {
+      c.drawOval(r, Paint()
+        ..color = const Color(0xFFFFEB3B)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2);
+    }
+    if (pd.state == 2) {
+      c.drawOval(r.inflate(tile * 0.1), Paint()..color = Color.fromARGB((90 + sin(wd.clock * 30) * 60).round(), 128, 216, 255));
+      final paint = Paint()
+        ..color = const Color(0xFFE1F5FE)
+        ..strokeWidth = 2
+        ..style = PaintingStyle.stroke;
+      for (var k = 0; k < 3; k++) {
+        final a = wd.clock * 7 + k * 2.1;
+        final path = Path()..moveTo(r.center.dx, r.center.dy);
+        var q = r.center;
+        for (var s = 0; s < 4; s++) {
+          q = q + Offset(cos(a + s) * r.width * 0.12, sin(a * 1.3 + s) * r.height * 0.15);
+          path.lineTo(q.dx, q.dy);
+        }
+        c.drawPath(path, paint);
+      }
+      _say(c, '⚡', r.center.translate(0, -r.height * 0.7), tile * 0.4, const Color(0xFFFFEB3B));
+    }
+  }
+
+  void _bossBar(Canvas c, Thug b) {
+    final w = size.x * 0.7;
+    final r = Rect.fromLTWH((size.x - w) / 2, topSpace + (wd.overloadOn ? 34 : 8), w, 14);
+    c.drawRRect(RRect.fromRectAndRadius(r.inflate(3), const Radius.circular(10)), Paint()..color = const Color(0xDD000000));
+    c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(r.left, r.top, r.width * (b.hp / b.maxHp).clamp(0.0, 1.0), r.height), const Radius.circular(8)),
+        Paint()..color = const Color(0xFFD50000));
+    _say(c, '👹 الزعيم', r.center, 12, Colors.white);
   }
 
   void _thief(Canvas c, Thief t) {
@@ -577,7 +771,7 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     for (final car in wd.cars) {
       if (_visible(car.rect)) c.drawCircle(P(car.pos + car.dir * 1.0), tile * 0.8, carLight);
     }
-    if (wd.generatorOn) c.drawCircle(P(ArcadeWorld.generator.center), tile * 1.4, hole);
+    if (wd.generatorOn) c.drawCircle(P(wd.generator.center), tile * 1.4, hole);
     c.restore();
   }
 
@@ -625,9 +819,13 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
       if (!hs.lit) arrow(hs.center, '⚡', hs.dark < 3 ? const Color(0xFFFF1744) : const Color(0xFFFFC107), pulse: hs.dark < 3);
     }
     for (final t in wd.thieves) {
-      if (t.pos.dx > -0.5 && t.pos.dx < ArcadeWorld.w + 0.5) arrow(t.pos, '🦹', const Color(0xFFD500F9), pulse: true);
+      if (t.pos.dx > -0.5 && t.pos.dx < wd.w + 0.5) arrow(t.pos, '🦹', const Color(0xFFD500F9), pulse: true);
     }
-    if (wd.overloadOn) arrow(ArcadeWorld.generator.center, '🔥', const Color(0xFFFF6D00), pulse: true);
+    if (wd.overloadOn) arrow(wd.generator.center, '🔥', const Color(0xFFFF6D00), pulse: true);
+    for (final t in wd.thugs) {
+      if (t.boss) arrow(t.pos, '👹', const Color(0xFFD50000), pulse: true);
+    }
+    if (wd.cfg.vehicle && !wd.riding) arrow(wd.truck, '🚙', const Color(0xFF43A047));
     if (wd.cfg.fuelDrain > 0 && wd.fuel < 0.35) {
       for (final p in wd.pickups) {
         if (p.kind == 0) arrow(p.pos, '⛽', const Color(0xFFFFB300));

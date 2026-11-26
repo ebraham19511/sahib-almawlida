@@ -4,7 +4,7 @@ import 'dart:ui' show Offset, Rect;
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// إعدادات كل مرحلة. كل مرحلة تضيف شي جديد حتى ما تتشابه
+/// إعدادات كل مرحلة. 40 مرحلة، كل وحدة أصعب من اللي قبلها
 class LevelCfg {
   final String title;
   final String tip;
@@ -14,10 +14,16 @@ class LevelCfg {
   final double fuelDrain; // كم ينقص الكاز بالثانية (0 = ماكو)
   final double thiefEvery; // كل كم ثانية يجي حرامي (0 = ماكو)
   final int cars; // عدد السيارات بالشوارع
-  final bool night; // ليل: الضوء بس حوالين اللاعب والبيوت
-  final List<double> storms; // بأي ثانية من المرحلة تجي عاصفة
+  final int theme; // 0 نهار، 1 غروب، 2 ليل، 3 مطر، 4 مطر بالليل
+  final List<double> storms; // بأي ثانية تجي عاصفة
   final List<double> overloads; // بأي ثانية المولدة تسخن
-  final List<int> stars; // نقاط النجمة 1 و2 و3
+  final double gangEvery; // كل كم ثانية تجي العصابة (0 = ماكو)
+  final int gangSize;
+  final int boss; // 0 ماكو زعيم، 1..4 قوة الزعيم
+  final bool vehicle; // اكو سيارة شغل تگدر تسوگها
+  final int nx, ny; // حجم المدينة بالبلوكات
+  final int seed; // شكل المدينة (وين الحدايق)
+  final List<int> stars;
   const LevelCfg({
     required this.title,
     required this.tip,
@@ -27,125 +33,113 @@ class LevelCfg {
     this.fuelDrain = 0,
     this.thiefEvery = 0,
     this.cars = 0,
-    this.night = false,
+    this.theme = 0,
     this.storms = const [],
     this.overloads = const [],
+    this.gangEvery = 0,
+    this.gangSize = 0,
+    this.boss = 0,
+    this.vehicle = false,
+    this.nx = 4,
+    this.ny = 6,
+    this.seed = 1,
     required this.stars,
   });
+  bool get night => theme == 2 || theme == 4;
+  bool get rain => theme == 3 || theme == 4;
 }
 
-const levels = <LevelCfg>[
-  LevelCfg(
-      title: 'أول يوم شغل', tip: '⚡ اركض للبيت الطافي ورجّعله الكهرباء', duration: 45, spawn: 3.0, darkTimeout: 11, stars: [500, 900, 1300]),
-  LevelCfg(
-      title: 'شارع الزحمة',
-      tip: '🚗 دير بالك من السيارات! إذا ضربتك تطيح',
-      duration: 50,
-      spawn: 2.8,
-      darkTimeout: 10,
-      cars: 7,
-      stars: [700, 1200, 1700]),
-  LevelCfg(
-      title: 'الكاز خلصان',
-      tip: '⛽ لمّ جليكانات الكاز حتى المولدة ما توكف',
-      duration: 55,
-      spawn: 2.7,
-      darkTimeout: 10,
-      fuelDrain: 0.03,
-      cars: 6,
-      stars: [900, 1500, 2100]),
-  LevelCfg(
-      title: 'الحرامي!',
-      tip: '🦹 الحرامي يگص الواير ويهرب.. الحگه قبل ما يطلع',
-      duration: 55,
-      spawn: 3.0,
-      darkTimeout: 10,
-      fuelDrain: 0.025,
-      thiefEvery: 11,
-      cars: 5,
-      stars: [1000, 1700, 2400]),
-  LevelCfg(
-      title: 'الليل',
-      tip: '🌙 الدنيا ظلمة.. البيت الطافي ما يبين إلا بالسهم',
-      duration: 60,
-      spawn: 2.7,
-      darkTimeout: 10,
-      fuelDrain: 0.03,
-      thiefEvery: 13,
-      cars: 6,
-      night: true,
-      stars: [1100, 1800, 2600]),
-  LevelCfg(
-      title: 'العاصفة',
-      tip: '⛈️ عاصفة راح تطفي نص الحي مرة وحدة!',
-      duration: 60,
-      spawn: 3.0,
-      darkTimeout: 11,
-      fuelDrain: 0.03,
-      cars: 6,
-      storms: [18, 40],
-      stars: [1300, 2100, 2900]),
-  LevelCfg(
-      title: 'حمل زائد',
-      tip: '🔥 إذا المولدة سخنت اركضلها واضغط بسرعة قبل ما تنفجر',
-      duration: 60,
-      spawn: 2.8,
-      darkTimeout: 10,
-      fuelDrain: 0.03,
-      thiefEvery: 15,
-      cars: 6,
-      overloads: [15, 40],
-      stars: [1300, 2100, 3000]),
-  LevelCfg(
-      title: 'ساعة الذروة',
-      tip: '🚕 سيارات هوايه وحرامية.. ركّز!',
-      duration: 65,
-      spawn: 2.4,
-      darkTimeout: 9.5,
-      fuelDrain: 0.035,
-      thiefEvery: 9,
-      cars: 13,
-      stars: [1500, 2500, 3500]),
-  LevelCfg(
-      title: 'ليلة العاصفة',
-      tip: '🌙⛈️ ليل وعاصفة وحمل زائد',
-      duration: 70,
-      spawn: 2.5,
-      darkTimeout: 10,
-      fuelDrain: 0.035,
-      thiefEvery: 11,
-      cars: 8,
-      night: true,
-      storms: [22],
-      overloads: [45],
-      stars: [1700, 2800, 3900]),
-  LevelCfg(
-      title: 'الامتحان الأخير',
-      tip: '👑 كلشي مرة وحدة.. ورّينا شطارتك',
-      duration: 75,
-      spawn: 2.2,
-      darkTimeout: 9.5,
-      fuelDrain: 0.04,
-      thiefEvery: 8,
-      cars: 12,
-      night: true,
-      storms: [20, 52],
-      overloads: [36, 62],
-      stars: [2000, 3300, 4600]),
+const _titles = [
+  'أول يوم شغل', 'شارع الزحمة', 'الكاز خلصان', 'الحرامي!', 'الليل', 'المطر المكهرب', 'حمل زائد', 'العاصفة', 'العصابة', 'الزعيم الأول',
+  'الحي الجديد', 'غروب بغداد', 'ليلة طويلة', 'شوارع مبلولة', 'الزحمة الكبيرة', 'عيد الحي', 'حرامية الواير', 'ليل ومطر', 'صيف حار', 'زعيم السوگ',
+  'المدينة الكبيرة', 'الكهرباء الوطنية طافية', 'ليلة الحراميه', 'السيل', 'سوگ الجمعة', 'العرس', 'المولدة التعبانة', 'برد وظلمة', 'عصابة الليل', 'الزعيم الأحمر',
+  'المدينة كلها', 'الامتحان', 'ما ننام', 'العاصفة الكبرى', 'ساعة الذروة', 'الحرّ', 'الحرب على الحرامية', 'آخر ليلة', 'ضد الجميع', 'ملك المولدات',
 ];
+
+const _intro = {
+  0: '⚡ اركض للبيت الطافي ورجّعله الكهرباء',
+  1: '🚗 دير بالك من السيارات! إذا ضربتك تطيح',
+  2: '⛽ لمّ الكاز.. و🚙 اركب سيارة الشغل حتى توصل أسرع (بس انزل حتى تصلّح)',
+  3: '🦹 الحرامي يگص الواير ويهرب.. الحگه أو اضربه 👊',
+  4: '🌙 الدنيا ظلمة.. اتبع الأسهم',
+  5: '⚡💧 المطر كهرب المي! لا تدوس على المي وهي تشرّر',
+  6: '🔥 إذا المولدة سخنت اركضلها واضغط بسرعة',
+  7: '⛈️ عاصفة راح تطفي نص الحي مرة وحدة!',
+  8: '👊 عصابة دخلت الحي! اضربهم بزر القبضة',
+  9: '👹 الزعيم! لازم تغلبه قبل ما يخلص الوكت',
+};
+
+const _themeTips = [
+  '☀️ نهار، والمدينة أكبر.. استعمل السيارة',
+  '🌇 غروب، والبيوت تطفي أسرع',
+  '🌙 ليل.. البيت الطافي ما يبين إلا بالسهم',
+  '🌧️ مطر.. انتبه للمي المكهربة',
+  '🌧️🌙 ليل ومطر.. أصعب شي',
+];
+
+List<LevelCfg> buildLevels() {
+  final out = <LevelCfg>[];
+  const cycle = [0, 1, 2, 0, 3, 1, 2, 3, 0, 4];
+  const firstTen = [0, 0, 0, 1, 2, 3, 1, 0, 0, 4];
+  for (var i = 0; i < 40; i++) {
+    final tier = i ~/ 10, k = i % 10;
+    final nx = const [4, 5, 5, 6][tier];
+    final ny = const [6, 7, 8, 9][tier];
+    final area = sqrt(nx * ny / 24.0);
+    final dur = (50 + tier * 10 + k * 1.5).roundToDouble();
+    final theme = tier == 0 ? firstTen[k] : cycle[k];
+    final storms = <double>[];
+    if (i >= 7 && k % 2 == 1) storms.add((dur * 0.3).roundToDouble());
+    if (tier >= 2 && k % 3 == 0) storms.add((dur * 0.65).roundToDouble());
+    if (i == 7) storms.add(18);
+    final overloads = <double>[];
+    if (i >= 6 && k % 3 == 0) overloads.add((dur * 0.4).roundToDouble());
+    if (i == 6) overloads.add(15);
+    if (tier >= 2 && k % 2 == 0) overloads.add((dur * 0.75).roundToDouble());
+    final boss = k == 9 ? tier + 1 : 0;
+    final mult = 1 + tier * 0.3 + (boss > 0 ? 0.3 : 0);
+    out.add(LevelCfg(
+      title: _titles[i],
+      tip: _intro[i] ?? _themeTips[theme],
+      duration: dur,
+      spawn: max(1.5, 3.0 - tier * 0.3 - k * 0.05),
+      darkTimeout: max(7.5, 11 + (area - 1) * 5 - tier * 1.0 - k * 0.12),
+      fuelDrain: i >= 2 ? 0.025 + i * 0.0004 : 0,
+      thiefEvery: i >= 3 ? max(6.0, 13 - i * 0.18) : 0,
+      cars: i == 0 ? 0 : ((4 + i ~/ 3) * area).round(),
+      theme: theme,
+      storms: storms,
+      overloads: overloads,
+      gangEvery: i >= 8 ? max(11.0, 24 - tier * 3 - k * 0.4) : 0,
+      gangSize: i >= 8 ? 2 + tier : 0,
+      boss: boss,
+      vehicle: i >= 2,
+      nx: nx,
+      ny: ny,
+      seed: i * 7919 + 13,
+      stars: [
+        ((dur * 11 * mult) / 50).round() * 50,
+        ((dur * 19 * mult) / 50).round() * 50,
+        ((dur * 27 * mult) / 50).round() * 50,
+      ],
+    ));
+  }
+  return out;
+}
+
+final List<LevelCfg> levels = buildLevels();
 
 class House {
   final Rect rect;
   final int style;
   bool lit = true;
-  double dark = 0; // العد التنازلي إذا طافي
-  double flash = 0; // وميض بعد التصليح
-  double angry = 0; // وجه زعلان بعد ما فات الوكت
+  double dark = 0;
+  double flash = 0;
+  double angry = 0;
   House(this.rect, this.style);
   Offset get center => rect.center;
 }
 
-/// حالة الحرامي: رايح للبيت، يگص، هارب
 enum ThiefState { going, cutting, fleeing }
 
 class Thief {
@@ -159,13 +153,40 @@ class Thief {
   bool get leaving => state == ThiefState.fleeing;
 }
 
+/// واحد من العصابة، أو الزعيم
+class Thug {
+  Offset pos;
+  final bool boss;
+  final int maxHp;
+  int hp;
+  Offset dir = const Offset(0, 1);
+  double windup = 0; // يتهيأ يضرب
+  double cd = 0; // بين ضربة وضربة
+  double hurt = 0; // يرمش بعد ما ينضرب
+  Offset knock = Offset.zero;
+  double stuck = 0;
+  Offset? detour;
+  double detourT = 0;
+  double slamT = 0, summonT = 0; // للزعيم
+  Offset? slamAt;
+  double slamWarn = 0;
+  Thug(this.pos, this.maxHp, {this.boss = false}) : hp = maxHp;
+}
+
+class Puddle {
+  final Offset pos;
+  final double r;
+  int state = 0; // 0 عادي، 1 ينذر، 2 مكهرب
+  double t;
+  Puddle(this.pos, this.r, this.t);
+}
+
 class Car {
   Offset pos;
-  final Offset dir; // واحد من الأربع اتجاهات
+  final Offset dir;
   final double speed;
-  final int kind; // 0 تكسي، 1 حمرة، 2 خضرة
+  final int kind;
   double honk = 0;
-  bool stopped = false;
   Car(this.pos, this.dir, this.speed, this.kind);
   bool get vertical => dir.dx == 0;
   Rect get rect => vertical ? Rect.fromCenter(center: pos, width: 0.7, height: 0.95) : Rect.fromCenter(center: pos, width: 0.95, height: 0.7);
@@ -173,7 +194,7 @@ class Car {
 
 class Pickup {
   Offset pos;
-  final int kind; // 0 كاز، 1 سكوتر سرعة
+  final int kind; // 0 كاز، 1 سرعة، 2 صحة
   double life;
   Pickup(this.pos, this.kind, this.life);
 }
@@ -196,49 +217,59 @@ class FloatText {
 
 enum Phase { menu, countdown, playing, paused, won, lost }
 
-/// كل منطق اللعبة. المدينة 16 × 24 مربع، والإحداثيات بالمربعات
+/// كل منطق اللعبة. الإحداثيات بالمربعات، وكل بلوك 4 × 4
 class ArcadeWorld extends ChangeNotifier {
-  static const double w = 16, h = 24;
-  static const double speed = 5.0; // مربع بالثانية
+  static const double speed = 5.0;
+  static const double carSpeed = 8.5;
   static const double radius = 0.3;
-  static const Rect generator = Rect.fromLTWH(5.3, 9.2, 1.4, 1.2);
-  static const Rect plaza = Rect.fromLTWH(4.8, 8.8, 2.4, 2.2);
-  static const Offset startPos = Offset(6.0, 11.9);
 
-  /// خطوط نص الشوارع (للسيارات والحرامية)
-  static const roadXs = [0.4, 4.0, 8.0, 12.0, 15.6];
-  static const roadYs = [0.4, 3.9, 7.9, 11.9, 15.9, 19.9, 23.5];
+  // شكل المدينة (يتغير حسب المرحلة)
+  double w = 16, h = 24;
+  List<double> roadXs = [], roadYs = [];
+  Rect plaza = Rect.zero, generator = Rect.zero;
+  Offset startPos = Offset.zero;
+  List<Rect> parks = [];
 
   final _rnd = Random();
   void Function(String)? onSfx;
+  void Function(String)? onMusic;
   void sfx(String n) => onSfx?.call(n);
 
-  // التقدم
   List<int> stars = List.filled(levels.length, 0);
   List<int> best = List.filled(levels.length, 0);
 
-  // حالة المرحلة
   Phase phase = Phase.menu;
   int level = 0;
   LevelCfg get cfg => levels[level];
   double timeLeft = 0, countdown = 0, clock = 0;
-  int score = 0, hearts = 3, combo = 1, fixes = 0, caught = 0;
-  double comboTimer = 0, spawnTimer = 0, thiefTimer = 0, canTimer = 0, boostTimer = 0, boostSpawn = 0;
+  int score = 0, hearts = 3, combo = 1, fixes = 0, caught = 0, beaten = 0;
+  double comboTimer = 0, spawnTimer = 0, thiefTimer = 0, canTimer = 0, boostTimer = 0, boostSpawn = 0, gangTimer = 0;
   double fuel = 1, shake = 0, hintTime = 0;
-  double stun = 0, invuln = 0; // بعد ما تضربك سيارة
-  Offset player = startPos;
-  Offset move = Offset.zero; // من عصا التحكم (-1..1)
-  double face = pi / 2; // زاوية
-  late List<House> houses;
+  double stun = 0, invuln = 0;
+  double hp = 100;
+  double attackCd = 0, attackT = 0;
+  Offset player = Offset.zero;
+  Offset move = Offset.zero;
+  double face = pi / 2;
+  // سيارة الشغل
+  bool riding = false;
+  Offset truck = Offset.zero;
+  double truckFace = 0;
+  bool nearTruck = false;
+  double _rideNag = 0;
+
+  List<House> houses = [];
   final List<Thief> thieves = [];
+  final List<Thug> thugs = [];
+  final List<Puddle> puddles = [];
   final List<Car> cars = [];
   final List<Pickup> pickups = [];
   final List<Particle> particles = [];
   final List<FloatText> floats = [];
   int lastStars = 0;
   bool newBest = false;
+  String lostReason = '';
 
-  // الأحداث المفاجئة
   int _nextStorm = 0, _nextOverload = 0;
   double stormT = 0, lightning = 0;
   bool overloadOn = false;
@@ -246,27 +277,53 @@ class ArcadeWorld extends ChangeNotifier {
   bool nearGenerator = false;
   String banner = '';
   double bannerT = 0;
+  bool bossSpawned = false;
 
   ArcadeWorld() {
-    houses = _buildHouses();
-    _spawnCars(8); // سيارات تمشي ورا القائمة
+    _buildCity(levels[0]);
+    _spawnCars(8);
   }
 
-  List<House> _buildHouses() {
-    final out = <House>[];
-    var k = 0;
-    for (var j = 0; j < 6; j++) {
-      for (var i = 0; i < 4; i++) {
-        final r = Rect.fromLTWH(0.8 + i * 4.0, 0.8 + j * 4.0, 2.4, 2.2);
+  Thug? get boss {
+    for (final t in thugs) {
+      if (t.boss) return t;
+    }
+    return null;
+  }
+
+  bool get canFight => cfg.thiefEvery > 0 || cfg.gangEvery > 0 || cfg.boss > 0;
+  double get elapsed => cfg.duration - timeLeft;
+
+  // ---------- بناء المدينة ----------
+  void _buildCity(LevelCfg c) {
+    w = c.nx * 4.0;
+    h = c.ny * 4.0;
+    roadXs = [0.4, for (var i = 0; i < c.nx - 1; i++) 4.0 + i * 4.0, w - 0.4];
+    roadYs = [0.4, for (var j = 0; j < c.ny - 1; j++) 3.9 + j * 4.0, h - 0.5];
+    final pj = c.ny ~/ 2 - 1;
+    plaza = Rect.fromLTWH(4.8, 0.8 + pj * 4.0, 2.4, 2.2);
+    generator = Rect.fromLTWH(plaza.left + 0.5, plaza.top + 0.4, 1.4, 1.2);
+    startPos = Offset(plaza.center.dx, plaza.bottom + 0.9);
+    truck = Offset(plaza.center.dx + 1.6, plaza.bottom + 0.9);
+    truckFace = 0;
+    final r = Random(c.seed);
+    houses = [];
+    parks = [];
+    var k = c.seed % 7;
+    for (var j = 0; j < c.ny; j++) {
+      for (var i = 0; i < c.nx; i++) {
+        final rect = Rect.fromLTWH(0.8 + i * 4.0, 0.8 + j * 4.0, 2.4, 2.2);
         k++;
-        if (r.overlaps(plaza)) continue; // مكان المولدة
-        out.add(House(r, k));
+        if (rect.overlaps(plaza)) continue;
+        // بعض البلوكات حدايق (تگدر تعبر منها)
+        if (c.seed > 30 && r.nextDouble() < 0.14) {
+          parks.add(rect);
+          continue;
+        }
+        houses.add(House(rect, k));
       }
     }
-    return out;
   }
-
-  double get elapsed => cfg.duration - timeLeft;
 
   // ---------- التقدم ----------
   Future<void> loadProgress() async {
@@ -302,8 +359,10 @@ class ArcadeWorld extends ChangeNotifier {
   // ---------- بداية ونهاية ----------
   void start(int lv) {
     level = lv;
-    houses = _buildHouses();
+    _buildCity(cfg);
     thieves.clear();
+    thugs.clear();
+    puddles.clear();
     pickups.clear();
     particles.clear();
     floats.clear();
@@ -311,15 +370,20 @@ class ArcadeWorld extends ChangeNotifier {
     player = startPos;
     move = Offset.zero;
     face = pi / 2;
+    riding = false;
+    nearTruck = false;
     timeLeft = cfg.duration;
     score = 0;
     hearts = 3;
+    hp = 100;
     combo = 1;
     fixes = 0;
     caught = 0;
+    beaten = 0;
     comboTimer = 0;
     spawnTimer = 1.0;
     thiefTimer = cfg.thiefEvery > 0 ? cfg.thiefEvery * 0.5 : 0;
+    gangTimer = cfg.gangEvery > 0 ? cfg.gangEvery * 0.6 : 0;
     canTimer = 4;
     boostTimer = 0;
     boostSpawn = 12;
@@ -327,6 +391,8 @@ class ArcadeWorld extends ChangeNotifier {
     shake = 0;
     stun = 0;
     invuln = 0;
+    attackCd = 0;
+    attackT = 0;
     hintTime = lv == 0 ? 8 : 0;
     _nextStorm = 0;
     _nextOverload = 0;
@@ -337,9 +403,13 @@ class ArcadeWorld extends ChangeNotifier {
     nearGenerator = false;
     banner = '';
     bannerT = 0;
+    bossSpawned = false;
+    lostReason = '';
     _spawnCars(cfg.cars);
+    if (cfg.rain) _spawnPuddles(6 + cfg.nx * cfg.ny ~/ 4);
     countdown = 3;
     phase = Phase.countdown;
+    onMusic?.call('music_main');
     sfx('whistle');
     notifyListeners();
   }
@@ -361,6 +431,7 @@ class ArcadeWorld extends ChangeNotifier {
 
   void toMenu() {
     phase = Phase.menu;
+    onMusic?.call('music_main');
     notifyListeners();
   }
 
@@ -368,6 +439,11 @@ class ArcadeWorld extends ChangeNotifier {
     move = Offset.zero;
     overloadOn = false;
     nearGenerator = false;
+    nearTruck = false;
+    if (won && cfg.boss > 0 && boss != null) {
+      won = false;
+      lostReason = '👹 الزعيم بعده عايش!';
+    }
     if (won) {
       final s = cfg.stars;
       lastStars = score >= s[2] ? 3 : (score >= s[1] ? 2 : (score >= s[0] ? 1 : 0));
@@ -375,14 +451,17 @@ class ArcadeWorld extends ChangeNotifier {
       if (newBest) best[level] = score;
       if (lastStars > stars[level]) stars[level] = lastStars;
       phase = lastStars > 0 ? Phase.won : Phase.lost;
+      if (lastStars == 0) lostReason = '⭐ تحتاج ${s[0]} نقطة للنجمة الأولى';
       sfx(lastStars > 0 ? 'win' : 'miss');
       _saveProgress();
     } else {
       lastStars = 0;
       newBest = false;
       phase = Phase.lost;
+      if (lostReason.isEmpty) lostReason = '😡 الناس زعلت';
       sfx('miss');
     }
+    onMusic?.call('music_main');
     notifyListeners();
   }
 
@@ -392,18 +471,21 @@ class ArcadeWorld extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _burst(Offset at, int color, int n, double sp, [double size = 0.06]) {
+    for (var k = 0; k < n; k++) {
+      final a = _rnd.nextDouble() * 2 * pi;
+      particles.add(Particle(at, Offset(cos(a), sin(a)) * sp * (0.5 + _rnd.nextDouble()), color, 0.5, size));
+    }
+  }
+
   // ---------- الإدخال ----------
   void setMove(Offset v) => move = v;
 
-  /// ضغطة على زر التبريد وقت الحمل الزائد
   void tapCool() {
     if (!overloadOn || !nearGenerator || phase != Phase.playing) return;
     heat -= 0.075;
     sfx('pump');
-    for (var k = 0; k < 4; k++) {
-      final a = _rnd.nextDouble() * 2 * pi;
-      particles.add(Particle(generator.center, Offset(cos(a), sin(a)) * 2.5, 0xFF80D8FF, 0.4, 0.07));
-    }
+    _burst(generator.center, 0xFF80D8FF, 4, 2.5, 0.07);
     if (heat <= 0) {
       overloadOn = false;
       heat = 0;
@@ -414,10 +496,60 @@ class ArcadeWorld extends ChangeNotifier {
     }
   }
 
+  /// اركب أو انزل من سيارة الشغل
+  void toggleRide() {
+    if (phase != Phase.playing || !cfg.vehicle) return;
+    if (riding) {
+      // ننزل جنب السيارة بمكان فاضي
+      riding = false;
+      truck = player;
+      truckFace = face;
+      for (final d in const [Offset(0, 0.8), Offset(0, -0.8), Offset(0.8, 0), Offset(-0.8, 0)]) {
+        if (!_hitsSolid(truck + d, radius)) {
+          player = truck + d;
+          break;
+        }
+      }
+      sfx('kick');
+    } else if (nearTruck) {
+      riding = true;
+      player = truck;
+      face = truckFace;
+      sfx('engine');
+    }
+    nearTruck = false;
+    notifyListeners();
+  }
+
+  /// ضربة (قبضة)
+  void attack() {
+    if (phase != Phase.playing || attackCd > 0 || stun > 0 || riding) return;
+    attackCd = 0.3;
+    attackT = 0.18;
+    final f = Offset(cos(face), sin(face));
+    var hit = false;
+    for (final t in List.of(thugs)) {
+      final d = t.pos - player;
+      final dist = d.distance;
+      final reach = t.boss ? 1.6 : 1.15;
+      if (dist > reach) continue;
+      if (dist > 0.6 && (d.dx * f.dx + d.dy * f.dy) / dist < 0.1) continue;
+      _damageThug(t, 1, dist > 0.01 ? d / dist : f);
+      hit = true;
+    }
+    for (final t in List.of(thieves)) {
+      if ((t.pos - player).distance < 1.2) {
+        _catchThief(t);
+        hit = true;
+      }
+    }
+    sfx(hit ? 'punch' : 'kick');
+    if (hit) shake = max(shake, 0.4);
+  }
+
   // ---------- التحديث ----------
   void update(double dt) {
     clock += dt;
-    // التأثيرات تمشي دائماً
     for (final p in particles) {
       p.life -= dt;
       p.pos += p.vel * dt;
@@ -434,7 +566,6 @@ class ArcadeWorld extends ChangeNotifier {
       bannerT -= dt;
       if (bannerT <= 0) notifyListeners();
     }
-    // السيارات تمشي حتى بالعد التنازلي
     if (phase == Phase.menu || phase == Phase.countdown || phase == Phase.playing) _updateCars(dt);
 
     if (phase == Phase.countdown) {
@@ -463,21 +594,32 @@ class ArcadeWorld extends ChangeNotifier {
 
     if (stun > 0) stun -= dt;
     if (invuln > 0) invuln -= dt;
+    if (attackCd > 0) attackCd -= dt;
+    if (attackT > 0) attackT -= dt;
+    if (_rideNag > 0) _rideNag -= dt;
     _movePlayer(dt);
     _carHits();
     _updateHouses(dt);
     if (phase != Phase.playing) return;
     _updateFuel(dt);
     _updateThieves(dt);
+    _updateGang(dt);
+    if (phase != Phase.playing) return;
+    _updatePuddles(dt);
+    if (phase != Phase.playing) return;
     _updatePickups(dt);
     _updateEvents(dt);
     if (phase != Phase.playing) return;
 
-    final near = _distToRect(player, generator) < 1.3;
-    if (near != nearGenerator) {
+    final near = !riding && _distToRect(player, generator) < 1.3;
+    final nt = cfg.vehicle && !riding && (truck - player).distance < 1.3;
+    if (near != nearGenerator || nt != nearTruck) {
       nearGenerator = near;
+      nearTruck = nt;
       notifyListeners();
     }
+    // الصحة ترجع شوية شوية إذا ماكو عركة
+    if (hp < 100 && thugs.every((t) => (t.pos - player).distance > 4)) hp = min(100, hp + dt * 4);
 
     if (comboTimer > 0) {
       comboTimer -= dt;
@@ -487,14 +629,33 @@ class ArcadeWorld extends ChangeNotifier {
     if (timeLeft.ceil() != sec) notifyListeners();
   }
 
-  bool _hitsSolid(Offset p) {
-    if (p.dx < radius || p.dx > w - radius || p.dy < radius || p.dy > h - radius) return true;
-    bool inRect(Rect r) =>
-        p.dx > r.left - radius && p.dx < r.right + radius && p.dy > r.top - radius && p.dy < r.bottom + radius;
+  bool _hitsSolid(Offset p, double rad) {
+    if (p.dx < rad || p.dx > w - rad || p.dy < rad || p.dy > h - rad) return true;
+    bool inRect(Rect r) => p.dx > r.left - rad && p.dx < r.right + rad && p.dy > r.top - rad && p.dy < r.bottom + rad;
     for (final hs in houses) {
       if (inRect(hs.rect)) return true;
     }
     return inRect(generator);
+  }
+
+  /// حركة مع تزحلق على الحيطان
+  bool _slide(Offset from, Offset delta, double rad, void Function(Offset) set) {
+    var p = from;
+    var moved = false;
+    const steps = 3;
+    for (var i = 0; i < steps; i++) {
+      final dx = Offset(delta.dx / steps, 0), dy = Offset(0, delta.dy / steps);
+      if (!_hitsSolid(p + dx, rad)) {
+        p += dx;
+        moved = true;
+      }
+      if (!_hitsSolid(p + dy, rad)) {
+        p += dy;
+        moved = true;
+      }
+    }
+    set(p);
+    return moved;
   }
 
   void _movePlayer(double dt) {
@@ -503,16 +664,14 @@ class ArcadeWorld extends ChangeNotifier {
     if (len < 0.05) return;
     final dir = move / len;
     face = atan2(dir.dy, dir.dx);
-    final sp = speed * min(1.0, len) * (boostTimer > 0 ? 1.6 : 1) * dt;
-    // نتحرك بخطوات صغيرة ونتزحلق على الحيطان حتى ما ننحصر
-    const steps = 3;
-    for (var i = 0; i < steps; i++) {
-      final dx = Offset(dir.dx * sp / steps, 0), dy = Offset(0, dir.dy * sp / steps);
-      if (!_hitsSolid(player + dx)) player += dx;
-      if (!_hitsSolid(player + dy)) player += dy;
-    }
+    final base = riding ? carSpeed : speed;
+    final sp = base * min(1.0, len) * (boostTimer > 0 ? 1.5 : 1) * dt;
+    _slide(player, dir * sp, riding ? 0.38 : radius, (p) => player = p);
     if (boostTimer > 0 && _rnd.nextDouble() < 0.5) {
       particles.add(Particle(player, Offset(-dir.dx, -dir.dy) * 1.5, 0xFF80D8FF, 0.35, 0.06));
+    }
+    if (riding && _rnd.nextDouble() < 0.3) {
+      particles.add(Particle(player - dir * 0.5, Offset(-dir.dx, -dir.dy) * 0.8, 0xFF9E9E9E, 0.4, 0.05));
     }
   }
 
@@ -524,21 +683,48 @@ class ArcadeWorld extends ChangeNotifier {
 
   bool get generatorOn => cfg.fuelDrain == 0 || fuel > 0;
 
+  // ---------- الصحة ----------
+  void _hurtPlayer(double amount, Offset from, String icon) {
+    if (invuln > 0) return;
+    hp -= amount;
+    invuln = 0.9;
+    stun = max(stun, 0.25);
+    shake = max(shake, 0.8);
+    sfx('hurt');
+    floats.add(FloatText(player, '$icon -${amount.round()}', 0xFFFF5252));
+    final d = player - from;
+    if (d.distance > 0.01) {
+      _slide(player, d / d.distance * 0.7, radius, (p) => player = p);
+    }
+    if (hp <= 0) {
+      hp = 100;
+      riding = false;
+      truck = startPos + const Offset(1.6, 0);
+      player = startPos;
+      invuln = 2.5;
+      _say('😵 ضربوك! رجعت للمولدة');
+      _loseHeart(player, '💔');
+    }
+    notifyListeners();
+  }
+
   // ---------- السيارات ----------
   void _spawnCars(int n) {
     var tries = 0;
-    while (cars.length < n && tries < 200) {
+    final innerX = roadXs.sublist(1, roadXs.length - 1);
+    final innerY = roadYs.sublist(1, roadYs.length - 1);
+    while (cars.length < n && tries < 300) {
       tries++;
       final vertical = _rnd.nextBool();
       final forward = _rnd.nextBool();
       final kind = _rnd.nextInt(3);
-      final sp = 2.6 + _rnd.nextDouble() * 1.6;
+      final sp = 2.6 + _rnd.nextDouble() * 1.6 + level * 0.02;
       Car c;
       if (vertical) {
-        final x = roadXs[1 + _rnd.nextInt(3)] + (forward ? -0.42 : 0.42);
+        final x = innerX[_rnd.nextInt(innerX.length)] + (forward ? -0.42 : 0.42);
         c = Car(Offset(x, _rnd.nextDouble() * h), Offset(0, forward ? 1 : -1), sp, kind);
       } else {
-        final y = roadYs[1 + _rnd.nextInt(5)] + (forward ? 0.42 : -0.42);
+        final y = innerY[_rnd.nextInt(innerY.length)] + (forward ? 0.42 : -0.42);
         c = Car(Offset(_rnd.nextDouble() * w, y), Offset(forward ? 1 : -1, 0), sp, kind);
       }
       if ((c.pos - startPos).distance < 3) continue;
@@ -549,7 +735,6 @@ class ArcadeWorld extends ChangeNotifier {
 
   void _updateCars(double dt) {
     for (final c in cars) {
-      // توكف إذا اكو سيارة گدامها. العمودية تنطي مجال للأفقية حتى ما يصير تصادم بالتقاطع
       final ahead = c.rect.shift(c.dir * 0.9);
       var blocked = false;
       for (final o in cars) {
@@ -560,9 +745,9 @@ class ArcadeWorld extends ChangeNotifier {
           break;
         }
       }
-      c.stopped = blocked;
+      // توكف إذا سيارتك گدامها
+      if (riding && ahead.contains(player)) blocked = true;
       if (!blocked) c.pos += c.dir * c.speed * dt;
-      // تلف من الجهة الثانية
       if (c.pos.dx < -1.5) c.pos = Offset(w + 1.5, c.pos.dy);
       if (c.pos.dx > w + 1.5) c.pos = Offset(-1.5, c.pos.dy);
       if (c.pos.dy < -1.5) c.pos = Offset(c.pos.dx, h + 1.5);
@@ -574,7 +759,11 @@ class ArcadeWorld extends ChangeNotifier {
   void _carHits() {
     for (final c in cars) {
       final r = c.rect.inflate(radius * 0.6);
-      // تزمّر إذا انت گدامها
+      // العصابة تنضرب بالسيارات هم
+      for (final t in List.of(thugs)) {
+        if (t.hurt <= 0 && r.contains(t.pos)) _damageThug(t, 2, c.dir);
+      }
+      if (riding) continue;
       if (c.honk <= 0 && r.shift(c.dir * 1.6).contains(player)) {
         c.honk = 2.5;
         sfx('honk');
@@ -587,17 +776,15 @@ class ArcadeWorld extends ChangeNotifier {
         final lost = min(score, 50);
         score -= lost;
         combo = 1;
+        hp -= 15;
         sfx('honk');
         floats.add(FloatText(player, '💥 -$lost', 0xFFFF5252));
-        for (var k = 0; k < 12; k++) {
-          final a = _rnd.nextDouble() * 2 * pi;
-          particles.add(Particle(player, Offset(cos(a), sin(a)) * 3, 0xFFFFFFFF, 0.4, 0.06));
-        }
-        // تطيرك شوية لجهة السيارة
+        _burst(player, 0xFFFFFFFF, 12, 3);
         final side = c.vertical ? Offset(player.dx < c.pos.dx ? -1 : 1, 0) : Offset(0, player.dy < c.pos.dy ? -1 : 1);
-        for (var k = 0; k < 8; k++) {
-          final n = player + side * 0.12 + c.dir * 0.06;
-          if (!_hitsSolid(n)) player = n;
+        _slide(player, side * 0.9 + c.dir * 0.4, radius, (p) => player = p);
+        if (hp <= 0) {
+          invuln = 0;
+          _hurtPlayer(0.1, c.pos, '🚗');
         }
         notifyListeners();
         return;
@@ -619,9 +806,13 @@ class ArcadeWorld extends ChangeNotifier {
       if (hs.angry > 0) hs.angry -= dt;
       if (hs.lit) continue;
       hs.dark -= dt;
-      // اللاعب وصل للبيت: يرجّع الكهرباء (إذا المولدة شغالة)
-      if (_distToRect(player, hs.rect) < radius + 0.3) {
-        if (generatorOn) {
+      if (_distToRect(player, hs.rect) < (riding ? 0.45 : radius) + 0.3) {
+        if (riding) {
+          if (_rideNag <= 0) {
+            _rideNag = 2;
+            floats.add(FloatText(hs.center, '🚙 انزل حتى تصلّح', 0xFFFFFFFF));
+          }
+        } else if (generatorOn) {
           _fix(i);
           continue;
         } else if (_rnd.nextDouble() < dt * 2) {
@@ -644,7 +835,10 @@ class ArcadeWorld extends ChangeNotifier {
     sfx('miss');
     floats.add(FloatText(at, icon, 0xFFFF5252));
     notifyListeners();
-    if (hearts <= 0) _end(false);
+    if (hearts <= 0) {
+      lostReason = '😡 الناس زعلت';
+      _end(false);
+    }
   }
 
   void _goDark(int i) {
@@ -653,10 +847,7 @@ class ArcadeWorld extends ChangeNotifier {
     hs.lit = false;
     hs.dark = cfg.darkTimeout;
     sfx('alarm');
-    for (var k = 0; k < 8; k++) {
-      final a = _rnd.nextDouble() * 2 * pi;
-      particles.add(Particle(hs.center, Offset(cos(a), sin(a)) * 2, 0xFFFFEB3B, 0.4, 0.05));
-    }
+    _burst(hs.center, 0xFFFFEB3B, 8, 2, 0.05);
   }
 
   void _fix(int i) {
@@ -671,27 +862,24 @@ class ArcadeWorld extends ChangeNotifier {
     combo = min(5, combo + 1);
     comboTimer = 4.0;
     sfx('coin');
-    for (var k = 0; k < 14; k++) {
-      final a = _rnd.nextDouble() * 2 * pi;
-      final s = 1.5 + _rnd.nextDouble() * 3;
-      particles.add(Particle(hs.center, Offset(cos(a), sin(a)) * s, k.isEven ? 0xFFFFD54F : 0xFFFFF59D, 0.6, 0.07));
-    }
+    _burst(hs.center, 0xFFFFD54F, 14, 3, 0.07);
     notifyListeners();
   }
 
-  /// نقطة عشوائية على شارع
-  Offset _randomStreetPoint() {
-    for (var tries = 0; tries < 60; tries++) {
+  Offset _randomStreetPoint({double minD = 2, double maxD = 11}) {
+    final innerX = roadXs.sublist(1, roadXs.length - 1);
+    final innerY = roadYs.sublist(1, roadYs.length - 1);
+    for (var tries = 0; tries < 80; tries++) {
       Offset p;
       if (_rnd.nextBool()) {
-        p = Offset(1 + _rnd.nextDouble() * (w - 2), roadYs[1 + _rnd.nextInt(5)]);
+        p = Offset(1 + _rnd.nextDouble() * (w - 2), innerY[_rnd.nextInt(innerY.length)]);
       } else {
-        p = Offset(roadXs[1 + _rnd.nextInt(3)], 1 + _rnd.nextDouble() * (h - 2));
+        p = Offset(innerX[_rnd.nextInt(innerX.length)], 1 + _rnd.nextDouble() * (h - 2));
       }
       final d = (p - player).distance;
-      if (!_hitsSolid(p) && d > 2.0 && d < 11) return p;
+      if (!_hitsSolid(p, radius) && d > minD && d < maxD) return p;
     }
-    return const Offset(8.0, 11.9);
+    return startPos;
   }
 
   void _updateFuel(double dt) {
@@ -705,15 +893,17 @@ class ArcadeWorld extends ChangeNotifier {
     canTimer -= dt * (fuel < 0.35 ? 1.8 : 1);
     if (canTimer <= 0) {
       canTimer = 5 + _rnd.nextDouble() * 3;
-      if (pickups.where((p) => p.kind == 0).length < 2) pickups.add(Pickup(_randomStreetPoint(), 0, 12));
+      if (pickups.where((p) => p.kind == 0).length < 2) pickups.add(Pickup(_randomStreetPoint(), 0, 14));
     }
   }
 
   void _updatePickups(double dt) {
     boostSpawn -= dt;
     if (boostSpawn <= 0) {
-      boostSpawn = 14 + _rnd.nextDouble() * 8;
-      pickups.add(Pickup(_randomStreetPoint(), 1, 10));
+      boostSpawn = 13 + _rnd.nextDouble() * 8;
+      // إذا اكو عركة يطلع صحة أكثر
+      final kind = (canFight && hp < 70 && _rnd.nextBool()) ? 2 : 1;
+      pickups.add(Pickup(_randomStreetPoint(), kind, 12));
     }
     for (final p in List.of(pickups)) {
       p.life -= dt;
@@ -721,17 +911,21 @@ class ArcadeWorld extends ChangeNotifier {
         pickups.remove(p);
         continue;
       }
-      if ((p.pos - player).distance < 0.6) {
+      if ((p.pos - player).distance < (riding ? 0.8 : 0.6)) {
         pickups.remove(p);
         if (p.kind == 0) {
           fuel = min(1, fuel + 0.45);
           score += 30;
           sfx('pump');
           floats.add(FloatText(p.pos, '⛽ +30', 0xFFFFB300));
-        } else {
+        } else if (p.kind == 1) {
           boostTimer = 6;
           sfx('goal');
-          floats.add(FloatText(p.pos, '🛵 سرعة!', 0xFF80D8FF));
+          floats.add(FloatText(p.pos, '⚡ سرعة!', 0xFF80D8FF));
+        } else {
+          hp = min(100, hp + 40);
+          sfx('coin');
+          floats.add(FloatText(p.pos, '❤️ +40', 0xFF69F0AE));
         }
         notifyListeners();
       }
@@ -747,7 +941,6 @@ class ArcadeWorld extends ChangeNotifier {
     return best;
   }
 
-  /// طريق على الشوارع: من نقطة على شارع أفقي لنقطة على شارع أفقي ثاني
   List<Offset> _route(Offset from, double y1, double toX, double y2) {
     if ((y1 - y2).abs() < 0.01) return [Offset(toX, y1)];
     var bestX = roadXs[1];
@@ -764,15 +957,27 @@ class ArcadeWorld extends ChangeNotifier {
 
   Offset _doorOf(Rect r) => Offset(r.center.dx, r.bottom + 0.35);
 
+  void _catchThief(Thief t) {
+    if (!thieves.remove(t)) return;
+    caught++;
+    final pts = t.state == ThiefState.fleeing ? 300 : 150;
+    score += pts;
+    sfx('goal');
+    shake = 0.6;
+    floats.add(FloatText(t.pos, '👮 +$pts', 0xFF69F0AE));
+    _burst(t.pos, 0xFF69F0AE, 16, 3);
+    notifyListeners();
+  }
+
   void _updateThieves(double dt) {
     if (cfg.thiefEvery > 0) {
       thiefTimer -= dt;
-      if (thiefTimer <= 0 && thieves.length < 2) {
+      if (thiefTimer <= 0 && thieves.length < 2 + level ~/ 15) {
         thiefTimer = cfg.thiefEvery * (0.8 + _rnd.nextDouble() * 0.4);
         final targets = [for (var i = 0; i < houses.length; i++) if (houses[i].lit) i];
         if (targets.isNotEmpty) {
           final ti = targets[_rnd.nextInt(targets.length)];
-          final y = roadYs[1 + _rnd.nextInt(5)];
+          final y = roadYs[1 + _rnd.nextInt(roadYs.length - 2)];
           final from = Offset(_rnd.nextBool() ? -0.8 : w + 0.8, y);
           final t = Thief(from, ti);
           final door = _doorOf(houses[ti].rect);
@@ -792,7 +997,6 @@ class ArcadeWorld extends ChangeNotifier {
           if (hs.lit) _goDark(t.target);
           hs.dark = cfg.darkTimeout;
           floats.add(FloatText(hs.center, '✂️', 0xFFFF5252));
-          // يهرب لأقرب طرف
           final ry = _nearestRoadY(t.pos.dy + 0.5);
           final exitX = t.pos.dx < w / 2 ? -1.2 : w + 1.2;
           t.path = [Offset(t.pos.dx, ry), Offset(exitX, ry)];
@@ -803,7 +1007,7 @@ class ArcadeWorld extends ChangeNotifier {
         final goal = t.path.first;
         final d = goal - t.pos;
         final len = d.distance;
-        final sp = (t.state == ThiefState.fleeing ? 3.7 : 2.3) * dt;
+        final sp = (t.state == ThiefState.fleeing ? 3.7 + level * 0.02 : 2.3) * dt;
         if (len <= sp) {
           t.pos = goal;
           t.path.removeAt(0);
@@ -817,7 +1021,6 @@ class ArcadeWorld extends ChangeNotifier {
             t.cut = 1.3;
             t.dir = const Offset(0, -1);
           } else {
-            // هرب
             thieves.remove(t);
             final lost = min(score, 100);
             score -= lost;
@@ -828,20 +1031,224 @@ class ArcadeWorld extends ChangeNotifier {
           }
         }
       }
-      // اللاعب لزمه
-      if ((t.pos - player).distance < 0.65) {
-        thieves.remove(t);
-        caught++;
-        final pts = t.state == ThiefState.fleeing ? 300 : 150;
-        score += pts;
-        sfx('goal');
-        shake = 0.6;
-        floats.add(FloatText(t.pos, '👮 +$pts', 0xFF69F0AE));
-        for (var k = 0; k < 16; k++) {
-          final a = _rnd.nextDouble() * 2 * pi;
-          particles.add(Particle(t.pos, Offset(cos(a), sin(a)) * 3, 0xFF69F0AE, 0.5, 0.06));
+      if ((t.pos - player).distance < (riding ? 0.85 : 0.65)) _catchThief(t);
+    }
+  }
+
+  // ---------- العصابة والزعيم ----------
+  Offset _edgeSpawn() {
+    final y = roadYs[1 + _rnd.nextInt(roadYs.length - 2)];
+    final p = _randomStreetPoint(minD: 7, maxD: 14);
+    return p == startPos ? Offset(_rnd.nextBool() ? 0.4 : w - 0.4, y) : p;
+  }
+
+  void _updateGang(double dt) {
+    if (cfg.gangEvery > 0) {
+      gangTimer -= dt;
+      if (gangTimer <= 0) {
+        gangTimer = cfg.gangEvery * (0.85 + _rnd.nextDouble() * 0.3);
+        if (thugs.where((t) => !t.boss).length < 6) {
+          final at = _edgeSpawn();
+          for (var k = 0; k < cfg.gangSize; k++) {
+            thugs.add(Thug(at + Offset((k % 3) * 0.6 - 0.6, (k ~/ 3) * 0.6), 3 + level ~/ 12));
+          }
+          sfx('whistle');
+          _say('👊 العصابة جاية!');
         }
-        notifyListeners();
+      }
+    }
+    if (cfg.boss > 0 && !bossSpawned && elapsed > 6) {
+      bossSpawned = true;
+      thugs.add(Thug(_edgeSpawn(), 22 + cfg.boss * 10, boss: true)
+        ..slamT = 4
+        ..summonT = 9);
+      sfx('boss');
+      shake = 1.5;
+      onMusic?.call('music_boss');
+      _say('👹 الزعيم وصل!');
+    }
+    for (final t in List.of(thugs)) {
+      if (!thugs.contains(t)) continue;
+      if (t.hurt > 0) t.hurt -= dt;
+      if (t.cd > 0) t.cd -= dt;
+      // دفعة الضربة
+      if (t.knock.distance > 0.01) {
+        _slide(t.pos, t.knock * dt * 8, radius, (p) => t.pos = p);
+        t.knock = t.knock * (1 - min(1.0, dt * 8));
+      }
+      final toP = player - t.pos;
+      final dist = toP.distance;
+      if (t.boss) _bossAi(t, dt, dist);
+      if (t.windup > 0) {
+        t.windup -= dt;
+        if (t.windup <= 0) {
+          t.cd = t.boss ? 1.2 : 1.0;
+          if (dist < (t.boss ? 1.5 : 1.05)) {
+            _hurtPlayer(t.boss ? 22.0 + cfg.boss * 3 : 9.0 + level * 0.15, t.pos, t.boss ? '👹' : '👊');
+            sfx('punch');
+          }
+        }
+        continue;
+      }
+      if (dist < (t.boss ? 1.3 : 0.9) && t.cd <= 0 && stun <= 0) {
+        t.windup = t.boss ? 0.55 : 0.4;
+        t.dir = dist > 0.01 ? toP / dist : t.dir;
+        continue;
+      }
+      if (dist < 0.7) continue;
+      // يمشي صوبك، وإذا انحصر يدور طريق من التقاطعات
+      var goal = player;
+      if (t.detour != null) {
+        t.detourT -= dt;
+        goal = t.detour!;
+        if (t.detourT <= 0 || (goal - t.pos).distance < 0.3) t.detour = null;
+      }
+      final d = goal - t.pos;
+      final len = d.distance;
+      if (len < 0.01) continue;
+      t.dir = d / len;
+      final sp = (t.boss ? 2.4 : 3.0 + level * 0.025) * dt;
+      final before = t.pos;
+      _slide(t.pos, t.dir * sp, t.boss ? 0.45 : radius, (p) => t.pos = p);
+      if ((t.pos - before).distance < sp * 0.3) {
+        t.stuck += dt;
+        if (t.stuck > 0.4) {
+          t.stuck = 0;
+          t.detour = _bestCorner(t.pos, player);
+          t.detourT = 2.0;
+        }
+      } else {
+        t.stuck = 0;
+      }
+      // سيارتك تدعمهم
+      if (riding && t.hurt <= 0 && dist < 0.9 && move.distance > 0.3) _damageThug(t, 2, dist > 0.01 ? -toP / dist : t.dir);
+    }
+  }
+
+  Offset _bestCorner(Offset from, Offset to) {
+    var best = from;
+    var bd = 1e9;
+    for (final x in roadXs) {
+      for (final y in roadYs) {
+        final p = Offset(x, y);
+        final a = (p - from).distance;
+        if (a > 6) continue;
+        final s = a + (to - p).distance * 1.2;
+        if (s < bd) {
+          bd = s;
+          best = p;
+        }
+      }
+    }
+    return best;
+  }
+
+  void _bossAi(Thug b, double dt, double dist) {
+    // ضربة أرض: دائرة حمرة تنذرك، اطلع منها
+    if (b.slamAt != null) {
+      b.slamWarn -= dt;
+      if (b.slamWarn <= 0) {
+        final at = b.slamAt!;
+        if ((player - at).distance < 1.7) _hurtPlayer(28.0 + cfg.boss * 4, at, '💥');
+        for (final t in thugs) {
+          if (!t.boss && (t.pos - at).distance < 1.7) t.knock = (t.pos - at) * 1.2;
+        }
+        _burst(at, 0xFFFF6D00, 26, 5, 0.09);
+        shake = 1.6;
+        sfx('boss');
+        b.slamAt = null;
+      }
+    } else {
+      b.slamT -= dt;
+      if (b.slamT <= 0 && dist < 7) {
+        b.slamT = max(2.6, 5.0 - cfg.boss * 0.5);
+        b.slamAt = player;
+        b.slamWarn = 1.1;
+      }
+    }
+    b.summonT -= dt;
+    if (b.summonT <= 0) {
+      b.summonT = max(8.0, 14.0 - cfg.boss * 1.5);
+      if (thugs.length < 7) {
+        for (var k = 0; k < 2; k++) {
+          thugs.add(Thug(b.pos + Offset(k == 0 ? -0.8 : 0.8, 0.3), 2 + cfg.boss));
+        }
+        _say('👹 الزعيم صاح على جماعته!');
+      }
+    }
+  }
+
+  void _damageThug(Thug t, int dmg, Offset dir) {
+    if (t.hurt > 0) return;
+    t.hp -= dmg;
+    t.hurt = 0.25;
+    t.windup = 0;
+    t.knock = dir * (t.boss ? 0.6 : 1.6);
+    _burst(t.pos, 0xFFFFFFFF, 6, 2.5, 0.05);
+    floats.add(FloatText(t.pos, '💢', 0xFFFFFFFF));
+    if (t.boss) notifyListeners();
+    if (t.hp <= 0) {
+      thugs.remove(t);
+      beaten++;
+      final pts = t.boss ? 1500 : 120;
+      score += pts;
+      floats.add(FloatText(t.pos, t.boss ? '🏆 +$pts' : '👊 +$pts', 0xFF69F0AE));
+      _burst(t.pos, t.boss ? 0xFFFFD54F : 0xFF69F0AE, t.boss ? 40 : 14, t.boss ? 6 : 3, 0.08);
+      sfx(t.boss ? 'win' : 'goal');
+      if (t.boss) {
+        shake = 2;
+        onMusic?.call('music_main');
+        _say('🏆 غلبت الزعيم!');
+        // جماعته يهربون
+        for (final o in List.of(thugs)) {
+          thugs.remove(o);
+          _burst(o.pos, 0xFF9E9E9E, 8, 2);
+        }
+      }
+      notifyListeners();
+    }
+  }
+
+  // ---------- المي المكهربة ----------
+  void _spawnPuddles(int n) {
+    for (var k = 0; k < n; k++) {
+      final p = _randomStreetPoint(minD: 2.5, maxD: 40);
+      if (p == startPos) continue;
+      if (puddles.any((o) => (o.pos - p).distance < 2)) continue;
+      puddles.add(Puddle(p, 0.55 + _rnd.nextDouble() * 0.35, 2 + _rnd.nextDouble() * 6));
+    }
+  }
+
+  void _updatePuddles(double dt) {
+    for (final p in puddles) {
+      p.t -= dt;
+      if (p.t <= 0) {
+        if (p.state == 0) {
+          p.state = 1;
+          p.t = 1.0;
+        } else if (p.state == 1) {
+          p.state = 2;
+          p.t = 2.2 + level * 0.02;
+        } else {
+          p.state = 0;
+          p.t = max(2.5, 7 - level * 0.08) + _rnd.nextDouble() * 3;
+        }
+      }
+      if (p.state != 2) continue;
+      if (_rnd.nextDouble() < dt * 8) {
+        final a = _rnd.nextDouble() * 2 * pi;
+        particles.add(Particle(p.pos + Offset(cos(a), sin(a)) * p.r * 0.6, Offset(0, -1.5), 0xFF80D8FF, 0.25, 0.04));
+      }
+      // داخل المي (السيارة تحميك)
+      if (!riding && (player - p.pos).distance < p.r + 0.1 && invuln <= 0) {
+        stun = 0.9;
+        sfx('zap');
+        _burst(player, 0xFF80D8FF, 14, 3);
+        _hurtPlayer(14.0 + level * 0.2, p.pos, '⚡');
+        if (phase != Phase.playing) return;
+      }
+      for (final t in List.of(thugs)) {
+        if (!t.boss && (t.pos - p.pos).distance < p.r) _damageThug(t, 1, const Offset(0, -1));
       }
     }
   }
@@ -851,18 +1258,22 @@ class ArcadeWorld extends ChangeNotifier {
     if (stormT > 0) stormT -= dt;
     if (_nextStorm < cfg.storms.length && elapsed >= cfg.storms[_nextStorm]) {
       _nextStorm++;
-      stormT = 6;
+      stormT = 7;
       lightning = 1;
       shake = 1.5;
       sfx('alarm');
       _say('⛈️ عاصفة! انطفى نص الحي');
       final litOnes = [for (var i = 0; i < houses.length; i++) if (houses[i].lit) i]..shuffle(_rnd);
-      for (final i in litOnes.take(5)) {
+      for (final i in litOnes.take(4 + level ~/ 10)) {
         _goDark(i);
-        houses[i].dark = cfg.darkTimeout + 3; // وكت إضافي للعاصفة
+        houses[i].dark = cfg.darkTimeout + 3;
       }
+      _spawnPuddles(3);
     }
-    if (stormT > 0 && _rnd.nextDouble() < dt * 0.6) lightning = 1;
+    if ((stormT > 0 || cfg.rain) && _rnd.nextDouble() < dt * (stormT > 0 ? 0.6 : 0.08)) {
+      lightning = 1;
+      if (_rnd.nextDouble() < 0.5) sfx('zap');
+    }
 
     if (_nextOverload < cfg.overloads.length && elapsed >= cfg.overloads[_nextOverload]) {
       _nextOverload++;
@@ -874,7 +1285,7 @@ class ArcadeWorld extends ChangeNotifier {
       }
     }
     if (overloadOn) {
-      heat += dt * 0.075;
+      heat += dt * (0.07 + level * 0.0008);
       if (_rnd.nextDouble() < dt * 6) {
         particles.add(Particle(Offset(generator.center.dx, generator.top), Offset(_rnd.nextDouble() - 0.5, -2), 0xFFFF6D00, 0.6, 0.08));
       }
@@ -884,12 +1295,9 @@ class ArcadeWorld extends ChangeNotifier {
         shake = 2;
         lightning = 0.8;
         _say('💥 المولدة انفجرت!');
-        for (var k = 0; k < 30; k++) {
-          final a = _rnd.nextDouble() * 2 * pi;
-          particles.add(Particle(generator.center, Offset(cos(a), sin(a)) * (2 + _rnd.nextDouble() * 4), k.isEven ? 0xFFFF6D00 : 0xFFFFD54F, 0.8, 0.1));
-        }
+        _burst(generator.center, 0xFFFF6D00, 30, 4, 0.1);
         for (var i = 0; i < houses.length; i++) {
-          if (houses[i].lit && _rnd.nextDouble() < 0.5) _goDark(i);
+          if (houses[i].lit && _rnd.nextDouble() < 0.4) _goDark(i);
         }
         _loseHeart(generator.center, '💥');
       }
