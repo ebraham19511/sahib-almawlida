@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'arcade/game.dart';
 import 'arcade/ui.dart';
 import 'arcade/world.dart';
+import 'game/music.dart';
 import 'game/sound.dart';
 
 Future<void> main() async {
@@ -13,6 +14,7 @@ Future<void> main() async {
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   final wd = ArcadeWorld();
   wd.onSfx = (n) => Sfx.play(n);
+  wd.onMusic = (n) => Music.play(n);
   await wd.loadProgress();
   runApp(ArcadeApp(wd: wd));
 }
@@ -32,6 +34,7 @@ class _ArcadeAppState extends State<ArcadeApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    Music.play('music_main');
   }
 
   @override
@@ -42,7 +45,12 @@ class _ArcadeAppState extends State<ArcadeApp> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState s) {
-    if (s != AppLifecycleState.resumed) widget.wd.pause();
+    if (s != AppLifecycleState.resumed) {
+      widget.wd.pause();
+      Music.pause();
+    } else {
+      Music.resume();
+    }
   }
 
   @override
