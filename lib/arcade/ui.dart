@@ -129,12 +129,21 @@ class _Menu extends StatelessWidget {
       child: Column(
         children: [
           const Align(alignment: AlignmentDirectional.topEnd, child: Padding(padding: EdgeInsets.all(8), child: _SoundToggles())),
-          const Text('⚡', style: TextStyle(fontSize: 54)),
-          const Text('صاحب المولدة',
-              style: TextStyle(fontSize: 40, fontWeight: FontWeight.w900, color: _gold, shadows: [Shadow(blurRadius: 12, color: Colors.black)])),
+          const GameLogo(),
           const SizedBox(height: 6),
-          Text('⭐ ${wd.totalStars} / ${levels.length * 3}', style: const TextStyle(fontSize: 18, color: Colors.white70)),
-          const SizedBox(height: 16),
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Text('⭐ ${wd.totalStars} / ${levels.length * 3}', style: const TextStyle(fontSize: 18, color: Colors.white70)),
+            const SizedBox(width: 16),
+            Text('🪙 ${wd.coins}', style: const TextStyle(fontSize: 18, color: _gold, fontWeight: FontWeight.bold)),
+            const SizedBox(width: 16),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF6A1B9A)),
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ShopPage(wd: wd))),
+              icon: const Icon(Icons.storefront_rounded),
+              label: const Text('المتجر', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ]),
+          const SizedBox(height: 14),
           Expanded(
             child: GridView.count(
               crossAxisCount: 4,
@@ -241,9 +250,9 @@ class _Hud extends StatelessWidget {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(6),
                     child: LinearProgressIndicator(
-                      value: (wd.hp / 100).clamp(0.0, 1.0),
+                      value: (wd.hp / wd.maxHp).clamp(0.0, 1.0),
                       backgroundColor: Colors.black54,
-                      color: wd.hp > 50 ? const Color(0xFF69F0AE) : (wd.hp > 25 ? const Color(0xFFFFB300) : const Color(0xFFFF1744)),
+                      color: wd.hp > wd.maxHp * 0.5 ? const Color(0xFF69F0AE) : (wd.hp > wd.maxHp * 0.25 ? const Color(0xFFFFB300) : const Color(0xFFFF1744)),
                     ),
                   ),
                 ),
@@ -303,6 +312,11 @@ class _Result extends StatelessWidget {
         const SizedBox(height: 8),
         Text('⭐ ${wd.score}', style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: _gold)),
         if (wd.newBest) const Text('🏆 رقم قياسي!', style: TextStyle(fontSize: 18, color: Color(0xFF69F0AE))),
+        if (wd.lastCoins > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text('🪙 +${wd.lastCoins}', style: const TextStyle(fontSize: 22, color: _gold, fontWeight: FontWeight.w900)),
+          ),
         const SizedBox(height: 6),
         Text('⚡ ${wd.fixes}    👮 ${wd.caught}    👊 ${wd.beaten}', style: const TextStyle(fontSize: 20, color: Colors.white70)),
         const SizedBox(height: 18),
@@ -426,13 +440,13 @@ class _Actions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final showRide = wd.cfg.vehicle && (wd.riding || wd.nearTruck);
+    final showRide = wd.cfg.vehicle && (wd.riding || wd.nearTruck || wd.nearHeli);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         if (showRide)
           _ActionBtn(
-            label: wd.riding ? '🚶\nانزل' : '🚙\nاركب',
+            label: wd.flying ? '🛬\nانزل' : (wd.riding ? '🚶\nانزل' : (wd.nearHeli ? '🚁\nطير' : '🚙\nاركب')),
             color: const Color(0xFF43A047),
             onTap: wd.toggleRide,
           ),
@@ -500,4 +514,180 @@ class _SoundTogglesState extends State<_SoundToggles> {
           ),
         ],
       );
+}
+
+/// المتجر: تشتري بفلوس اللعبة (🪙) اللي تجمعها من المراحل
+class ShopPage extends StatelessWidget {
+  final ArcadeWorld wd;
+  const ShopPage({super.key, required this.wd});
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        backgroundColor: const Color(0xFF101820),
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF101820),
+          title: const Text('🛒 المتجر', style: TextStyle(fontWeight: FontWeight.w900)),
+          actions: [
+            AnimatedBuilder(
+              animation: wd,
+              builder: (_, __) => Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Center(child: Text('🪙 ${wd.coins}', style: const TextStyle(fontSize: 20, color: _gold, fontWeight: FontWeight.w900))),
+              ),
+            ),
+          ],
+        ),
+        body: AnimatedBuilder(
+          animation: wd,
+          builder: (context, _) => ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              const Text('تجمع 🪙 من كل مرحلة تلعبها. كل ما تجيب نقاط ونجوم أكثر تاخذ أكثر.',
+                  style: TextStyle(color: Colors.white70, fontSize: 15)),
+              const SizedBox(height: 12),
+              for (var i = 0; i < ArcadeWorld.shopNames.length; i++) _upgradeTile(context, i),
+              _heartTile(context),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _upgradeTile(BuildContext context, int i) {
+    final cost = wd.upgCost(i);
+    final lv = wd.upg[i];
+    return Card(
+      color: _panel,
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(children: [
+          Text(ArcadeWorld.shopIcons[i], style: const TextStyle(fontSize: 40)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(ArcadeWorld.shopNames[i], style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+              Text(ArcadeWorld.shopDesc[i], style: const TextStyle(fontSize: 13, color: Colors.white70)),
+              const SizedBox(height: 6),
+              Row(children: [
+                for (var k = 0; k < ArcadeWorld.upgCosts.length; k++)
+                  Container(
+                    width: 26,
+                    height: 8,
+                    margin: const EdgeInsetsDirectional.only(end: 4),
+                    decoration: BoxDecoration(color: k < lv ? _gold : Colors.white24, borderRadius: BorderRadius.circular(4)),
+                  ),
+              ]),
+            ]),
+          ),
+          const SizedBox(width: 8),
+          cost == null
+              ? const Text('✅ كامل', style: TextStyle(fontSize: 16, color: Color(0xFF69F0AE), fontWeight: FontWeight.bold))
+              : FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: wd.coins >= cost ? const Color(0xFF2E7D32) : Colors.white12),
+                  onPressed: wd.coins >= cost ? () => wd.buyUpg(i) : null,
+                  child: Text('🪙 $cost', style: const TextStyle(fontWeight: FontWeight.bold)),
+                ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _heartTile(BuildContext context) {
+    final can = wd.coins >= ArcadeWorld.heartCost && wd.extraHearts < 5;
+    return Card(
+      color: _panel,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(children: [
+          const Text('❤️', style: TextStyle(fontSize: 40)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('قلب إضافي', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+              Text('تبدي المرحلة الجاية بـ 4 قلوب بدل 3. عندك: ${wd.extraHearts}',
+                  style: const TextStyle(fontSize: 13, color: Colors.white70)),
+            ]),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: can ? const Color(0xFF2E7D32) : Colors.white12),
+            onPressed: can ? wd.buyHeart : null,
+            child: const Text('🪙 ${ArcadeWorld.heartCost}', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+/// شعار اللعبة: صاعقة بدائرة متوهجة + الاسم بتدرج ذهبي وحافة غامقة
+class GameLogo extends StatefulWidget {
+  const GameLogo({super.key});
+
+  @override
+  State<GameLogo> createState() => _GameLogoState();
+}
+
+class _GameLogoState extends State<GameLogo> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const title = 'صاحب المولدة';
+    const style = TextStyle(fontSize: 46, fontWeight: FontWeight.w900, height: 1.1);
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, __) {
+        final v = _c.value;
+        return Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: 84,
+            height: 84,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: const RadialGradient(colors: [Color(0xFFFFF59D), Color(0xFFFFB300), Color(0xFFE65100)]),
+              border: Border.all(color: Colors.white, width: 3),
+              boxShadow: [BoxShadow(color: const Color(0xFFFFC107).withAlpha((120 + v * 120).round()), blurRadius: 18 + v * 22, spreadRadius: 2 + v * 4)],
+            ),
+            child: Transform.rotate(
+              angle: (v - 0.5) * 0.2,
+              child: const Icon(Icons.bolt_rounded, size: 64, color: Color(0xFF1A237E)),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Stack(children: [
+            Text(
+              title,
+              style: style.copyWith(
+                foreground: Paint()
+                  ..style = PaintingStyle.stroke
+                  ..strokeWidth = 8
+                  ..color = const Color(0xFF1A0E00),
+              ),
+            ),
+            ShaderMask(
+              shaderCallback: (r) => const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0xFFFFF8E1), Color(0xFFFFC107), Color(0xFFFF6F00)],
+              ).createShader(r),
+              child: const Text(title, style: TextStyle(fontSize: 46, fontWeight: FontWeight.w900, height: 1.1, color: Colors.white)),
+            ),
+          ]),
+        ]);
+      },
+    );
+  }
 }

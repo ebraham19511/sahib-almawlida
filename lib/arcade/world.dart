@@ -21,6 +21,7 @@ class LevelCfg {
   final int gangSize;
   final int boss; // 0 ماكو زعيم، 1..4 قوة الزعيم
   final bool vehicle; // اكو سيارة شغل تگدر تسوگها
+  final bool heli; // اكو هليكوبتر
   final int nx, ny; // حجم المدينة بالبلوكات
   final int seed; // شكل المدينة (وين الحدايق)
   final List<int> stars;
@@ -40,6 +41,7 @@ class LevelCfg {
     this.gangSize = 0,
     this.boss = 0,
     this.vehicle = false,
+    this.heli = false,
     this.nx = 4,
     this.ny = 6,
     this.seed = 1,
@@ -60,6 +62,7 @@ const _intro = {
   0: '⚡ اركض للبيت الطافي ورجّعله الكهرباء',
   1: '🚗 دير بالك من السيارات! إذا ضربتك تطيح',
   2: '⛽ لمّ الكاز.. و🚙 اركب سيارة الشغل حتى توصل أسرع (بس انزل حتى تصلّح)',
+  10: '🚁 صار عندك هليكوبتر! تطير فوگ البيوت.. وانزل حتى تصلّح',
   3: '🦹 الحرامي يگص الواير ويهرب.. الحگه أو اضربه 👊',
   4: '🌙 الدنيا ظلمة.. اتبع الأسهم',
   5: '⚡💧 المطر كهرب المي! لا تدوس على المي وهي تشرّر',
@@ -83,8 +86,8 @@ List<LevelCfg> buildLevels() {
   const firstTen = [0, 0, 0, 1, 2, 3, 1, 0, 0, 4];
   for (var i = 0; i < 40; i++) {
     final tier = i ~/ 10, k = i % 10;
-    final nx = const [4, 5, 5, 6][tier];
-    final ny = const [6, 7, 8, 9][tier];
+    final nx = const [5, 6, 7, 8][tier];
+    final ny = const [7, 9, 10, 12][tier];
     final area = sqrt(nx * ny / 24.0);
     final dur = (50 + tier * 10 + k * 1.5).roundToDouble();
     final theme = tier == 0 ? firstTen[k] : cycle[k];
@@ -114,6 +117,7 @@ List<LevelCfg> buildLevels() {
       gangSize: i >= 8 ? 2 + tier : 0,
       boss: boss,
       vehicle: i >= 2,
+      heli: i >= 10,
       nx: nx,
       ny: ny,
       seed: i * 7919 + 13,
@@ -238,6 +242,42 @@ class ArcadeWorld extends ChangeNotifier {
   List<int> stars = List.filled(levels.length, 0);
   List<int> best = List.filled(levels.length, 0);
 
+  // ---------- المتجر (فلوس اللعبة، تنجمع باللعب) ----------
+  static const shopIcons = ['👟', '💪', '👊', '⛽'];
+  static const shopNames = ['حذاء سريع', 'صحة أقوى', 'قبضة حديد', 'خزان كاز أكبر'];
+  static const shopDesc = ['تمشي وتسوگ أسرع 8% لكل مستوى', '+25 صحة لكل مستوى', 'ضربتك أسرع، وبالمستوى 2 أقوى', 'الكاز يخلص أبطأ 15% لكل مستوى'];
+  static const upgCosts = [200, 450, 900];
+  static const heartCost = 150;
+  int coins = 0;
+  List<int> upg = [0, 0, 0, 0];
+  int extraHearts = 0;
+  int lastCoins = 0;
+
+  int? upgCost(int i) => upg[i] < upgCosts.length ? upgCosts[upg[i]] : null;
+
+  bool buyUpg(int i) {
+    final c = upgCost(i);
+    if (c == null || coins < c) return false;
+    coins -= c;
+    upg[i]++;
+    sfx('coin');
+    _saveProgress();
+    notifyListeners();
+    return true;
+  }
+
+  bool buyHeart() {
+    if (coins < heartCost || extraHearts >= 5) return false;
+    coins -= heartCost;
+    extraHearts++;
+    sfx('coin');
+    _saveProgress();
+    notifyListeners();
+    return true;
+  }
+
+  double get maxHp => 100 + 25.0 * upg[1];
+
   Phase phase = Phase.menu;
   int level = 0;
   LevelCfg get cfg => levels[level];
@@ -247,6 +287,7 @@ class ArcadeWorld extends ChangeNotifier {
   double fuel = 1, shake = 0, hintTime = 0;
   double stun = 0, invuln = 0;
   double hp = 100;
+  double runT = 0; // كل ما تمشي أكثر بدون توقف تبدي تركض
   double attackCd = 0, attackT = 0;
   Offset player = Offset.zero;
   Offset move = Offset.zero;
@@ -256,6 +297,11 @@ class ArcadeWorld extends ChangeNotifier {
   Offset truck = Offset.zero;
   double truckFace = 0;
   bool nearTruck = false;
+  // الهليكوبتر
+  bool flying = false;
+  Offset heli = Offset.zero;
+  double heliFace = 0;
+  bool nearHeli = false;
   double _rideNag = 0;
 
   List<House> houses = [];
@@ -306,6 +352,8 @@ class ArcadeWorld extends ChangeNotifier {
     startPos = Offset(plaza.center.dx, plaza.bottom + 0.9);
     truck = Offset(plaza.center.dx + 1.6, plaza.bottom + 0.9);
     truckFace = 0;
+    heli = Offset(plaza.left - 0.8, plaza.top - 0.9);
+    heliFace = 0;
     final r = Random(c.seed);
     houses = [];
     parks = [];
@@ -341,6 +389,14 @@ class ArcadeWorld extends ChangeNotifier {
           best[i] = int.tryParse(b[i]) ?? 0;
         }
       }
+      coins = p.getInt('coins') ?? 0;
+      extraHearts = p.getInt('xhearts') ?? 0;
+      final u = p.getStringList('upg');
+      if (u != null) {
+        for (var i = 0; i < min(u.length, upg.length); i++) {
+          upg[i] = (int.tryParse(u[i]) ?? 0).clamp(0, upgCosts.length).toInt();
+        }
+      }
     } catch (_) {}
     notifyListeners();
   }
@@ -350,6 +406,9 @@ class ArcadeWorld extends ChangeNotifier {
       final p = await SharedPreferences.getInstance();
       await p.setStringList('arcade_stars', stars.map((e) => '$e').toList());
       await p.setStringList('arcade_best', best.map((e) => '$e').toList());
+      await p.setInt('coins', coins);
+      await p.setInt('xhearts', extraHearts);
+      await p.setStringList('upg', upg.map((e) => '$e').toList());
     } catch (_) {}
   }
 
@@ -371,11 +430,14 @@ class ArcadeWorld extends ChangeNotifier {
     move = Offset.zero;
     face = pi / 2;
     riding = false;
+    flying = false;
     nearTruck = false;
+    nearHeli = false;
     timeLeft = cfg.duration;
     score = 0;
     hearts = 3;
-    hp = 100;
+    hp = maxHp;
+    lastCoins = 0;
     combo = 1;
     fixes = 0;
     caught = 0;
@@ -409,6 +471,13 @@ class ArcadeWorld extends ChangeNotifier {
     if (cfg.rain) _spawnPuddles(6 + cfg.nx * cfg.ny ~/ 4);
     countdown = 3;
     phase = Phase.countdown;
+    if (extraHearts > 0) {
+      extraHearts--;
+      hearts = 4;
+      _saveProgress();
+      banner = '❤️ استعملت قلب إضافي';
+      bannerT = 3;
+    }
     onMusic?.call('music_main');
     sfx('whistle');
     notifyListeners();
@@ -440,6 +509,7 @@ class ArcadeWorld extends ChangeNotifier {
     overloadOn = false;
     nearGenerator = false;
     nearTruck = false;
+    nearHeli = false;
     if (won && cfg.boss > 0 && boss != null) {
       won = false;
       lostReason = '👹 الزعيم بعده عايش!';
@@ -452,6 +522,8 @@ class ArcadeWorld extends ChangeNotifier {
       if (lastStars > stars[level]) stars[level] = lastStars;
       phase = lastStars > 0 ? Phase.won : Phase.lost;
       if (lastStars == 0) lostReason = '⭐ تحتاج ${s[0]} نقطة للنجمة الأولى';
+      lastCoins = score ~/ 10 + lastStars * 20;
+      coins += lastCoins;
       sfx(lastStars > 0 ? 'win' : 'miss');
       _saveProgress();
     } else {
@@ -459,6 +531,9 @@ class ArcadeWorld extends ChangeNotifier {
       newBest = false;
       phase = Phase.lost;
       if (lostReason.isEmpty) lostReason = '😡 الناس زعلت';
+      lastCoins = score ~/ 20;
+      coins += lastCoins;
+      _saveProgress();
       sfx('miss');
     }
     onMusic?.call('music_main');
@@ -499,6 +574,43 @@ class ArcadeWorld extends ChangeNotifier {
   /// اركب أو انزل من سيارة الشغل
   void toggleRide() {
     if (phase != Phase.playing || !cfg.vehicle) return;
+    if (flying) {
+      // ننزل بأقرب مكان فاضي
+      Offset? spot;
+      for (var r = 0.0; r < 4 && spot == null; r += 0.4) {
+        for (var a = 0.0; a < 2 * pi; a += pi / 6) {
+          final q = player + Offset(cos(a), sin(a)) * r;
+          if (!_hitsSolid(q, 0.5)) {
+            spot = q;
+            break;
+          }
+        }
+      }
+      if (spot == null) {
+        floats.add(FloatText(player, '🚁 ماكو مكان تنزل', 0xFFFFFFFF));
+        return;
+      }
+      flying = false;
+      riding = false;
+      heli = spot;
+      heliFace = face;
+      player = spot + const Offset(0, 0.9);
+      if (_hitsSolid(player, radius)) player = spot;
+      sfx('kick');
+      notifyListeners();
+      return;
+    }
+    if (!riding && nearHeli && cfg.heli) {
+      riding = true;
+      flying = true;
+      player = heli;
+      face = heliFace;
+      sfx('engine');
+      nearHeli = false;
+      nearTruck = false;
+      notifyListeners();
+      return;
+    }
     if (riding) {
       // ننزل جنب السيارة بمكان فاضي
       riding = false;
@@ -524,7 +636,7 @@ class ArcadeWorld extends ChangeNotifier {
   /// ضربة (قبضة)
   void attack() {
     if (phase != Phase.playing || attackCd > 0 || stun > 0 || riding) return;
-    attackCd = 0.3;
+    attackCd = 0.3 - 0.04 * upg[2];
     attackT = 0.18;
     final f = Offset(cos(face), sin(face));
     var hit = false;
@@ -534,7 +646,7 @@ class ArcadeWorld extends ChangeNotifier {
       final reach = t.boss ? 1.6 : 1.15;
       if (dist > reach) continue;
       if (dist > 0.6 && (d.dx * f.dx + d.dy * f.dy) / dist < 0.1) continue;
-      _damageThug(t, 1, dist > 0.01 ? d / dist : f);
+      _damageThug(t, upg[2] >= 2 ? 2 : 1, dist > 0.01 ? d / dist : f);
       hit = true;
     }
     for (final t in List.of(thieves)) {
@@ -613,13 +725,15 @@ class ArcadeWorld extends ChangeNotifier {
 
     final near = !riding && _distToRect(player, generator) < 1.3;
     final nt = cfg.vehicle && !riding && (truck - player).distance < 1.3;
-    if (near != nearGenerator || nt != nearTruck) {
+    final nh = cfg.heli && !riding && (heli - player).distance < 1.5;
+    if (near != nearGenerator || nt != nearTruck || nh != nearHeli) {
       nearGenerator = near;
       nearTruck = nt;
+      nearHeli = nh;
       notifyListeners();
     }
     // الصحة ترجع شوية شوية إذا ماكو عركة
-    if (hp < 100 && thugs.every((t) => (t.pos - player).distance > 4)) hp = min(100, hp + dt * 4);
+    if (hp < maxHp && thugs.every((t) => (t.pos - player).distance > 4)) hp = min(maxHp, hp + dt * 4);
 
     if (comboTimer > 0) {
       comboTimer -= dt;
@@ -658,19 +772,38 @@ class ArcadeWorld extends ChangeNotifier {
     return moved;
   }
 
+  /// 0 = يمشي، 1 = يركض بكل سرعته
+  double get running => riding ? 0 : min(1.0, max(0.0, runT - 0.5) / 0.5);
+
   void _movePlayer(double dt) {
-    if (stun > 0) return;
+    if (stun > 0) {
+      runT = 0;
+      return;
+    }
     final len = move.distance;
-    if (len < 0.05) return;
+    if (len < 0.05) {
+      runT = 0;
+      return;
+    }
+    runT = len > 0.8 ? runT + dt : 0;
     final dir = move / len;
     face = atan2(dir.dy, dir.dx);
-    final base = riding ? carSpeed : speed;
+    final base = (flying ? 11.0 : (riding ? carSpeed : speed * (1 + 0.45 * running))) * (1 + 0.08 * upg[0]);
+    if (running > 0.9 && _rnd.nextDouble() < 0.4) {
+      particles.add(Particle(player + const Offset(0, 0.25), Offset(-dir.dx, -dir.dy) * 1.2 + const Offset(0, -0.4), 0xFFBDBDBD, 0.35, 0.05));
+    }
     final sp = base * min(1.0, len) * (boostTimer > 0 ? 1.5 : 1) * dt;
-    _slide(player, dir * sp, riding ? 0.38 : radius, (p) => player = p);
+    if (flying) {
+      // الهليكوبتر تطير فوگ البيوت
+      final n = player + dir * sp;
+      player = Offset(n.dx.clamp(0.5, w - 0.5).toDouble(), n.dy.clamp(0.5, h - 0.5).toDouble());
+    } else {
+      _slide(player, dir * sp, riding ? 0.38 : radius, (p) => player = p);
+    }
     if (boostTimer > 0 && _rnd.nextDouble() < 0.5) {
       particles.add(Particle(player, Offset(-dir.dx, -dir.dy) * 1.5, 0xFF80D8FF, 0.35, 0.06));
     }
-    if (riding && _rnd.nextDouble() < 0.3) {
+    if (riding && !flying && _rnd.nextDouble() < 0.3) {
       particles.add(Particle(player - dir * 0.5, Offset(-dir.dx, -dir.dy) * 0.8, 0xFF9E9E9E, 0.4, 0.05));
     }
   }
@@ -697,8 +830,10 @@ class ArcadeWorld extends ChangeNotifier {
       _slide(player, d / d.distance * 0.7, radius, (p) => player = p);
     }
     if (hp <= 0) {
-      hp = 100;
+      hp = maxHp;
+      if (flying) heli = player;
       riding = false;
+      flying = false;
       truck = startPos + const Offset(1.6, 0);
       player = startPos;
       invuln = 2.5;
@@ -746,7 +881,7 @@ class ArcadeWorld extends ChangeNotifier {
         }
       }
       // توكف إذا سيارتك گدامها
-      if (riding && ahead.contains(player)) blocked = true;
+      if (riding && !flying && ahead.contains(player)) blocked = true;
       if (!blocked) c.pos += c.dir * c.speed * dt;
       if (c.pos.dx < -1.5) c.pos = Offset(w + 1.5, c.pos.dy);
       if (c.pos.dx > w + 1.5) c.pos = Offset(-1.5, c.pos.dy);
@@ -885,7 +1020,7 @@ class ArcadeWorld extends ChangeNotifier {
   void _updateFuel(double dt) {
     if (cfg.fuelDrain <= 0) return;
     final wasOn = fuel > 0;
-    fuel = max(0, fuel - cfg.fuelDrain * dt);
+    fuel = max(0, fuel - cfg.fuelDrain * (1 - 0.15 * upg[3]) * dt);
     if (wasOn && fuel <= 0) {
       sfx('alarm');
       _say('⛽ خلص الكاز! لمّ جليكان');
@@ -902,7 +1037,7 @@ class ArcadeWorld extends ChangeNotifier {
     if (boostSpawn <= 0) {
       boostSpawn = 13 + _rnd.nextDouble() * 8;
       // إذا اكو عركة يطلع صحة أكثر
-      final kind = (canFight && hp < 70 && _rnd.nextBool()) ? 2 : 1;
+      final kind = (canFight && hp < maxHp * 0.7 && _rnd.nextBool()) ? 2 : 1;
       pickups.add(Pickup(_randomStreetPoint(), kind, 12));
     }
     for (final p in List.of(pickups)) {
@@ -923,7 +1058,7 @@ class ArcadeWorld extends ChangeNotifier {
           sfx('goal');
           floats.add(FloatText(p.pos, '⚡ سرعة!', 0xFF80D8FF));
         } else {
-          hp = min(100, hp + 40);
+          hp = min(maxHp, hp + 40);
           sfx('coin');
           floats.add(FloatText(p.pos, '❤️ +40', 0xFF69F0AE));
         }
@@ -1031,7 +1166,7 @@ class ArcadeWorld extends ChangeNotifier {
           }
         }
       }
-      if ((t.pos - player).distance < (riding ? 0.85 : 0.65)) _catchThief(t);
+      if (!flying && (t.pos - player).distance < (riding ? 0.85 : 0.65)) _catchThief(t);
     }
   }
 
@@ -1083,14 +1218,14 @@ class ArcadeWorld extends ChangeNotifier {
         t.windup -= dt;
         if (t.windup <= 0) {
           t.cd = t.boss ? 1.2 : 1.0;
-          if (dist < (t.boss ? 1.5 : 1.05)) {
+          if (!flying && dist < (t.boss ? 1.5 : 1.05)) {
             _hurtPlayer(t.boss ? 22.0 + cfg.boss * 3 : 9.0 + level * 0.15, t.pos, t.boss ? '👹' : '👊');
             sfx('punch');
           }
         }
         continue;
       }
-      if (dist < (t.boss ? 1.3 : 0.9) && t.cd <= 0 && stun <= 0) {
+      if (!flying && dist < (t.boss ? 1.3 : 0.9) && t.cd <= 0 && stun <= 0) {
         t.windup = t.boss ? 0.55 : 0.4;
         t.dir = dist > 0.01 ? toP / dist : t.dir;
         continue;
@@ -1121,7 +1256,7 @@ class ArcadeWorld extends ChangeNotifier {
         t.stuck = 0;
       }
       // سيارتك تدعمهم
-      if (riding && t.hurt <= 0 && dist < 0.9 && move.distance > 0.3) _damageThug(t, 2, dist > 0.01 ? -toP / dist : t.dir);
+      if (riding && !flying && t.hurt <= 0 && dist < 0.9 && move.distance > 0.3) _damageThug(t, 2, dist > 0.01 ? -toP / dist : t.dir);
     }
   }
 
@@ -1149,7 +1284,7 @@ class ArcadeWorld extends ChangeNotifier {
       b.slamWarn -= dt;
       if (b.slamWarn <= 0) {
         final at = b.slamAt!;
-        if ((player - at).distance < 1.7) _hurtPlayer(28.0 + cfg.boss * 4, at, '💥');
+        if (!flying && (player - at).distance < 1.7) _hurtPlayer(28.0 + cfg.boss * 4, at, '💥');
         for (final t in thugs) {
           if (!t.boss && (t.pos - at).distance < 1.7) t.knock = (t.pos - at) * 1.2;
         }

@@ -33,7 +33,7 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
   Arena(this.wd);
 
   static double topSpace = 120; // تحت الشريط الفوگاني (يتحدد من الواجهة)
-  static const double viewWidth = 6.4; // كم مربع يبين بعرض الشاشة
+  static const double viewWidth = 8.2; // كم مربع يبين بعرض الشاشة
 
   double tile = 60;
   Offset cam = const Offset(8, 12);
@@ -46,7 +46,16 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
 
   // صور المدينة (Kenney RPG Urban Pack - CC0)
   ui.Image? _sheet;
-  ui.Image? _face; // صورة وجه اللاعب
+  ui.Image? _face; // صورة وجه اللاعب (قديمة)
+  ui.Image? _hero; // صورة الشخصية الكاملة
+  bool _heroTried = false;
+  bool _heroFlip = false;
+  final Paint _heroPaint = Paint()
+    ..filterQuality = FilterQuality.medium
+    ..isAntiAlias = true;
+  final Paint _heroHurt = Paint()
+    ..filterQuality = FilterQuality.medium
+    ..colorFilter = const ColorFilter.mode(Color(0xFFFF8A80), BlendMode.modulate);
   final Paint _smooth = Paint()
     ..filterQuality = FilterQuality.high
     ..isAntiAlias = true;
@@ -107,9 +116,17 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
       _sheet = null;
     }
     try {
-      _face = await game.images.load('player_face.png');
+      _hero = await game.images.load('player.png');
     } catch (_) {
-      _face = null; // إذا الصورة مو موجودة نرجع للشخصية القديمة
+      _hero = null;
+    }
+    _heroTried = true;
+    if (_hero == null) {
+      try {
+        _face = await game.images.load('player_face.png');
+      } catch (_) {
+        _face = null;
+      }
     }
   }
 
@@ -258,7 +275,8 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     for (final car in wd.cars) {
       if (_visible(car.rect)) _car(c, car);
     }
-    if (wd.phase != Phase.menu && wd.cfg.vehicle && !wd.riding) _truck(c, wd.truck, wd.truckFace, false);
+    if (wd.phase != Phase.menu && wd.cfg.vehicle && !(wd.riding && !wd.flying)) _truck(c, wd.truck, wd.truckFace, false);
+    if (wd.phase != Phase.menu && wd.cfg.heli && !wd.flying) _heli(c, wd.heli, wd.heliFace, false);
     if (wd.phase != Phase.menu) {
       for (final t in wd.thugs) {
         if (t.slamAt != null) _slamWarn(c, t);
@@ -277,6 +295,7 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     for (final p in wd.particles) {
       c.drawCircle(P(p.pos), p.size * tile * (0.4 + p.life), Paint()..color = Color(p.color));
     }
+    if (wd.flying && wd.phase != Phase.menu) _heli(c, wd.player, wd.face, true);
     final menu = wd.phase == Phase.menu;
     if (!menu && wd.cfg.theme == 1) {
       c.drawRect(Offset.zero & Size(size.x, size.y), Paint()..color = const Color(0x40FF6E40));
@@ -308,6 +327,9 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
       if (wd.cfg.fuelDrain > 0) _fuelBar(c);
     }
     _joystick(c);
+    if (_heroTried && _hero == null && wd.phase != Phase.menu) {
+      _say(c, '⚠️ assets/images/player.png ناقص', Offset(size.x / 2, size.y - 60), 13, Colors.white);
+    }
   }
 
   void _ground(Canvas c) {
@@ -584,6 +606,7 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
 
   void _player(Canvas c) {
     final p = P(wd.player);
+    if (wd.flying) return; // تنرسم فوگ كلشي بعدين
     if (wd.riding) {
       if (wd.invuln > 0 && (wd.clock * 12).floor().isEven) return;
       _truck(c, wd.player, wd.face, true);
@@ -602,7 +625,9 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
         ..strokeWidth = 3,
     );
     final dir = Offset(cos(wd.face), sin(wd.face));
-    if (_face != null) {
+    if (_hero != null) {
+      _heroChar(c, p.translate(0, h * 0.18), h, moving, dir);
+    } else if (_face != null) {
       _photoChar(c, p.translate(0, h * 0.18), h, moving);
     } else {
       final frame = _charFrame(266, dir, moving, wd.clock * (wd.boostTimer > 0 ? 1.6 : 1.0));
@@ -620,6 +645,29 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
         ..strokeCap = StrokeCap.round);
       _say(c, '👊', c0 + dir * tile * 0.35 * k, tile * 0.45, Colors.white);
     }
+  }
+
+  /// الشخصية الكاملة (صورة اللاعب): تمشي وتهتز وتنقلب حسب الاتجاه
+  void _heroChar(Canvas c, Offset feet, double h, bool moving, Offset dir) {
+    final img = _hero!;
+    if (dir.dx > 0.25) _heroFlip = true;
+    if (dir.dx < -0.25) _heroFlip = false;
+    final hh = h * 1.55;
+    final ww = hh * img.width / img.height;
+    final t = wd.clock * (wd.boostTimer > 0 ? 22 : 14 + 8 * wd.running);
+    final walk = moving ? sin(t) : 0.0;
+    final bob = moving ? walk.abs() * h * 0.06 : sin(wd.clock * 2) * h * 0.012;
+    c.drawOval(Rect.fromCenter(center: feet, width: ww * 0.75, height: h * 0.24), Paint()..color = const Color(0x66000000));
+    c.save();
+    c.translate(feet.dx, feet.dy - bob);
+    c.rotate(walk * 0.07 + (_heroFlip ? 1 : -1) * 0.12 * wd.running);
+    if (_heroFlip) c.scale(-1, 1);
+    // نفس الشخص يمطّ شوية وهو يمشي
+    final squash = moving ? 1 + walk.abs() * 0.03 : 1.0;
+    c.scale(1 / squash, squash);
+    c.drawImageRect(img, Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()), Rect.fromLTWH(-ww / 2, -hh, ww, hh),
+        wd.stun > 0 ? _heroHurt : _heroPaint);
+    c.restore();
   }
 
   /// وجه اللاعب بدائرة ذهبية
@@ -674,6 +722,67 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     _faceCircle(c, feet.translate(0, -h * 0.82 - bob), h * 0.4);
   }
 
+  /// هليكوبتر مرسومة بالكود: جسم وذيل ومروحة تدور، وإذا طايرة ظلها بعيد
+  void _heli(Canvas c, Offset world, double angle, bool air) {
+    if (!_visible(Rect.fromCircle(center: world, radius: 2))) return;
+    final ground = P(world);
+    final lift = air ? tile * 0.9 : 0.0;
+    final p = ground.translate(0, -lift);
+    final s = tile * 1.1;
+    // ظل
+    c.save();
+    c.translate(ground.dx + lift * 0.3, ground.dy + tile * 0.1);
+    c.rotate(angle);
+    c.drawOval(Rect.fromCenter(center: Offset.zero, width: s * 1.1, height: s * 0.5), Paint()..color = Color.fromARGB(air ? 70 : 100, 0, 0, 0));
+    c.restore();
+    if (!air) {
+      // مهبط
+      c.drawCircle(ground, s * 0.85, Paint()..color = const Color(0x55FFFFFF));
+      _say(c, 'H', ground, tile * 0.9, const Color(0x66FFFFFF));
+    }
+    c.save();
+    c.translate(p.dx, p.dy);
+    c.rotate(angle);
+    final ink = Paint()
+      ..color = const Color(0xFF0B0F14)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5;
+    // ذيل
+    final tail = RRect.fromRectAndRadius(Rect.fromLTWH(-s * 1.05, -s * 0.07, s * 0.75, s * 0.14), Radius.circular(s * 0.07));
+    c.drawRRect(tail, Paint()..color = const Color(0xFFC62828));
+    c.drawRRect(tail, ink);
+    final fin = Rect.fromCenter(center: Offset(-s * 1.0, 0), width: s * 0.12, height: s * 0.45);
+    c.drawRect(fin, Paint()..color = const Color(0xFFB71C1C));
+    c.drawRect(fin, ink);
+    // جسم
+    final body = Rect.fromCenter(center: Offset.zero, width: s * 0.9, height: s * 0.55);
+    c.drawOval(body, Paint()..color = const Color(0xFFE53935));
+    c.drawOval(body, ink);
+    c.drawOval(Rect.fromCenter(center: Offset(s * 0.22, 0), width: s * 0.36, height: s * 0.38), Paint()..color = const Color(0xFF81D4FA));
+    c.drawOval(Rect.fromCenter(center: Offset(s * 0.22, 0), width: s * 0.36, height: s * 0.38), ink);
+    c.drawRect(Rect.fromCenter(center: Offset(-s * 0.15, 0), width: s * 0.12, height: s * 0.55), Paint()..color = const Color(0xFFFFC107));
+    // مروحة
+    final spin = air ? wd.clock * 30 : wd.clock * 2;
+    final blade = Paint()
+      ..color = const Color(0xCC263238)
+      ..strokeWidth = s * 0.07
+      ..strokeCap = StrokeCap.round;
+    for (var k = 0; k < 4; k++) {
+      final a = spin + k * pi / 2;
+      c.drawLine(Offset.zero, Offset(cos(a), sin(a)) * s * 0.8, blade);
+    }
+    if (air) c.drawCircle(Offset.zero, s * 0.8, Paint()..color = const Color(0x22FFFFFF));
+    c.drawCircle(Offset.zero, s * 0.08, Paint()..color = const Color(0xFF263238));
+    c.restore();
+    if (!air && wd.nearHeli) _say(c, '🔑', p.translate(0, -tile * 0.9 - sin(wd.clock * 8) * 4), tile * 0.45, Colors.white);
+    if (air && _hero != null) {
+      final img = _hero!;
+      final src = Rect.fromLTWH(img.width * 0.2, 0, img.width * 0.6, img.height * 0.32);
+      final hh = tile * 0.42;
+      c.drawImageRect(img, src, Rect.fromCenter(center: p.translate(0, -tile * 0.05), width: hh * src.width / src.height, height: hh), _heroPaint);
+    }
+  }
+
   /// سيارة الشغل (بيك أب) تدور على أي اتجاه
   void _truck(Canvas c, Offset world, double angle, bool driving) {
     if (!_visible(Rect.fromCircle(center: world, radius: 1))) return;
@@ -691,7 +800,14 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     c.drawImageRect(_sheet!, src, dst, _px);
     c.restore();
     if (driving) {
-      if (_face != null) {
+      if (_hero != null) {
+        // نص الشخصية الفوگاني طالع من السيارة
+        final img = _hero!;
+        final src = Rect.fromLTWH(0, 0, img.width.toDouble(), img.height * 0.45);
+        final hh = tile * 0.75;
+        final ww = hh * src.width / src.height;
+        c.drawImageRect(img, src, Rect.fromCenter(center: p.translate(0, -tile * 0.45), width: ww, height: hh), _heroPaint);
+      } else if (_face != null) {
         _faceCircle(c, p.translate(0, -tile * 0.55), tile * 0.3);
       } else {
         _say(c, '👷', p.translate(0, -tile * 0.15), tile * 0.32, Colors.white);
@@ -895,6 +1011,7 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
       if (t.boss) arrow(t.pos, '👹', const Color(0xFFD50000), pulse: true);
     }
     if (wd.cfg.vehicle && !wd.riding) arrow(wd.truck, '🚙', const Color(0xFF43A047));
+    if (wd.cfg.heli && !wd.flying) arrow(wd.heli, '🚁', const Color(0xFFE53935));
     if (wd.cfg.fuelDrain > 0 && wd.fuel < 0.35) {
       for (final p in wd.pickups) {
         if (p.kind == 0) arrow(p.pos, '⛽', const Color(0xFFFFB300));
