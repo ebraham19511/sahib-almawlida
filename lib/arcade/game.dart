@@ -266,36 +266,70 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
       _puddle(c, pd);
     }
     _generatorDraw(c);
-    for (final hs in wd.houses) {
-      if (_visible(hs.rect)) _house(c, hs);
-    }
-    for (final p in wd.pickups) {
-      _pickup(c, p);
-    }
-    for (final car in wd.cars) {
-      if (_visible(car.rect)) _car(c, car);
-    }
-    if (wd.phase != Phase.menu && wd.cfg.vehicle && !(wd.riding && !wd.flying)) _truck(c, wd.truck, wd.truckFace, false);
-    if (wd.phase != Phase.menu && wd.cfg.heli && !wd.flying) _heli(c, wd.heli, wd.heliFace, false);
+    _station(c);
     if (wd.phase != Phase.menu) {
       for (final t in wd.thugs) {
         if (t.slamAt != null) _slamWarn(c, t);
       }
-      // الشخصيات بالترتيب حسب الارتفاع حتى اللي جوه يطلع گدام
-      final chars = <MapEntry<double, VoidCallback>>[
-        MapEntry(wd.player.dy, () => _player(c)),
-        for (final t in wd.thieves) MapEntry(t.pos.dy, () => _thief(c, t)),
-        for (final t in wd.thugs) MapEntry(t.pos.dy, () => _thug(c, t)),
-      ]..sort((a, b) => a.key.compareTo(b.key));
-      for (final e in chars) {
-        e.value();
-      }
-      _hint(c);
     }
+    // كلشي واگف على الگاع ينرسم حسب بعده (اللي جوه يطلع گدام) حتى البنايات تغطي اللي وراها
+    final items = <MapEntry<double, VoidCallback>>[];
+    var hn = 0;
+    for (final hs in wd.houses) {
+      hn++;
+      if (!_visible(hs.rect.inflate(1.5))) continue;
+      items.add(MapEntry(hs.rect.bottom, () => _house(c, hs)));
+      final n = hn;
+      items.add(MapEntry(hs.rect.bottom + 0.3, () => _decor(c, hs, n)));
+    }
+    for (final p in wd.pickups) {
+      items.add(MapEntry(p.pos.dy, () => _pickup(c, p)));
+    }
+    for (final car in wd.cars) {
+      if (_visible(car.rect)) items.add(MapEntry(car.pos.dy + 0.3, () => _car(c, car)));
+    }
+    for (final wk in wd.walkers) {
+      items.add(MapEntry(wk.pos.dy, () => _walker(c, wk)));
+    }
+    for (final g in wd.greeters) {
+      items.add(MapEntry(g.pos.dy, () => _greeter(c, g)));
+    }
+    var pk = 0;
+    for (final park in wd.parks) {
+      final k = pk++;
+      if (k < 4) items.add(MapEntry(park.center.dy + 0.4, () => _kids(c, park, k)));
+    }
+    if (wd.phase != Phase.menu) {
+      if (wd.cfg.vehicle && !(wd.riding && !wd.flying)) items.add(MapEntry(wd.truck.dy, () => _truck(c, wd.truck, wd.truckFace, false)));
+      if (wd.cfg.heli && !wd.flying) items.add(MapEntry(wd.heli.dy, () => _heli(c, wd.heli, wd.heliFace, false)));
+      items.add(MapEntry(wd.player.dy, () => _player(c)));
+      for (final t in wd.thieves) {
+        items.add(MapEntry(t.pos.dy, () => _thief(c, t)));
+      }
+      for (final t in wd.thugs) {
+        items.add(MapEntry(t.pos.dy, () => _thug(c, t)));
+      }
+    }
+    items.sort((a, b) => a.key.compareTo(b.key));
+    for (final e in items) {
+      e.value();
+    }
+    if (wd.phase != Phase.menu) _hint(c);
     for (final p in wd.particles) {
       c.drawCircle(P(p.pos), p.size * tile * (0.4 + p.life), Paint()..color = Color(p.color));
     }
-    if (wd.flying && wd.phase != Phase.menu) _heli(c, wd.player, wd.face, true);
+    if (wd.flying && wd.phase != Phase.menu) {
+      final hi = wd.hoverHouse;
+      if (hi >= 0 && hi < wd.houses.length) {
+        final ctr = _roofCenter(wd.houses[hi]);
+        c.drawArc(Rect.fromCircle(center: ctr, radius: tile * 0.8), -pi / 2, 2 * pi * (wd.hoverT / 0.7).clamp(0.0, 1.0), false, Paint()
+          ..color = const Color(0xFF80D8FF)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = tile * 0.14
+          ..strokeCap = StrokeCap.round);
+      }
+      _heli(c, wd.player, wd.face, true);
+    }
     final menu = wd.phase == Phase.menu;
     if (!menu && wd.cfg.theme == 1) {
       c.drawRect(Offset.zero & Size(size.x, size.y), Paint()..color = const Color(0x40FF6E40));
@@ -303,7 +337,7 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     if (menu || wd.cfg.night) _night(c, menu ? 0.55 : 0.84);
     if (wd.stormT > 0 || (!menu && wd.cfg.rain)) _rain(c);
     for (final hs in wd.houses) {
-      if (!hs.lit && _visible(hs.rect)) _houseAlarm(c, hs);
+      if (!hs.lit && _visible(hs.rect.inflate(1.5))) _houseAlarm(c, hs);
     }
     for (final f in wd.floats) {
       final pos = P(f.pos).translate(0, -tile * 0.6 - f.t * 45);
@@ -322,9 +356,11 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     if (wd.phase == Phase.playing || wd.phase == Phase.countdown) {
       _arrows(c);
       if (wd.overloadOn) _heatBar(c);
+      if (wd.cfg.heli && (wd.flying || wd.heliFuel < 1)) _heliFuelBar(c);
       final b = wd.boss;
       if (b != null) _bossBar(c, b);
       if (wd.cfg.fuelDrain > 0) _fuelBar(c);
+      _minimap(c);
     }
     _joystick(c);
     if (_heroTried && _hero == null && wd.phase != Phase.menu) {
@@ -409,60 +445,155 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
       _spr(c, 162, Rect.fromLTWH(r.right - ts * 0.8, r.bottom - ts * 1.9, ts, ts));
       _spr(c, 189, Rect.fromLTWH(r.right - ts * 0.8, r.bottom - ts * 0.9, ts, ts));
     }
-    // أشجار وأعمدة إنارة (زينة)
-    var n = 0;
+    // ظلال البنايات على الگاع
+    final shadow = Paint()..color = const Color(0x40000000);
     for (final hs in wd.houses) {
-      n++;
-      if (!_visible(hs.rect)) continue;
-      final r = R(hs.rect.inflate(0.25));
-      final ts = tile * 0.5;
-      if (n % 2 == 0) {
-        _spr(c, 260, Rect.fromLTWH(r.left - ts * 0.15, r.top - ts * 1.1, ts, ts));
-        _spr(c, 287, Rect.fromLTWH(r.left - ts * 0.15, r.top - ts * 0.1, ts, ts));
-      } else {
-        _spr(c, 165, Rect.fromLTWH(r.right - ts * 0.85, r.top - ts * 1.0, ts, ts));
-        _spr(c, 192, Rect.fromLTWH(r.right - ts * 0.85, r.top, ts, ts));
-      }
+      if (!_visible(hs.rect.inflate(1.5))) continue;
+      final g = R(hs.rect);
+      final hh = _hH(hs) * tile;
+      c.drawRect(Rect.fromLTRB(g.left + hh * 0.3, g.top - hh * 0.25, g.right + hh * 0.55, g.bottom + tile * 0.14), shadow);
     }
   }
 
+  /// ارتفاع البناية (بالمربعات): طابق أو طابقين
+  double _hH(House hs) => hs.floors == 2 ? 1.3 : 0.85;
+
+  /// مركز السطح على الشاشة (للعلامات)
+  Offset _roofCenter(House hs) {
+    final hh = _hH(hs) * tile;
+    return R(hs.rect).translate(hh * 0.28, -hh).center;
+  }
+
+  /// بناية 2.5D: واجهة أمامية + جانب + سطح مرفوع
   void _house(Canvas c, House hs) {
-    final r = R(hs.rect);
-    c.drawRect(r.shift(Offset(tile * 0.1, tile * 0.12)), Paint()..color = const Color(0x55000000));
+    final hh = _hH(hs) * tile;
+    final sk = hh * 0.28;
+    final g = R(hs.rect);
+    final roof = g.translate(sk, -hh);
+    // إذا اللاعب ورا البناية نخليها شفافة شوية حتى يبين
+    final pr = wd.player;
+    final behind = wd.phase != Phase.menu &&
+        !wd.flying &&
+        pr.dx > hs.rect.left - 0.3 &&
+        pr.dx < hs.rect.right + 0.7 &&
+        pr.dy < hs.rect.top + 0.3 &&
+        pr.dy > hs.rect.top - _hH(hs) - 0.7;
+    if (behind) c.saveLayer(roof.expandToInclude(g).inflate(sk + 4), Paint()..color = const Color(0x73000000));
     if (hs.lit) {
-      c.drawRRect(RRect.fromRectAndRadius(r.inflate(tile * 0.2), Radius.circular(tile * 0.3)), Paint()..color = const Color(0x28FFE082));
+      c.drawRRect(RRect.fromRectAndRadius(g.inflate(tile * 0.2), Radius.circular(tile * 0.3)), Paint()..color = const Color(0x22FFE082));
     }
-    final wallH = r.height * 0.42;
-    final roof = Rect.fromLTRB(r.left, r.top, r.right, r.bottom - wallH);
-    final wall = Rect.fromLTRB(r.left, r.bottom - wallH, r.right, r.bottom);
+    final brick = hs.style % 3 == 0 ? 72 : (hs.style % 3 == 1 ? 180 : 99);
+    // الجانب الشرقي (أغمق)
+    final east = Path()
+      ..moveTo(g.right, g.bottom)
+      ..lineTo(g.right + sk, g.bottom - hh)
+      ..lineTo(g.right + sk, g.top - hh)
+      ..lineTo(g.right, g.top)
+      ..close();
+    c.drawPath(east, Paint()..color = hs.style % 3 == 1 ? const Color(0xFF8D4A1F) : const Color(0xFF7A2E26));
+    c.drawPath(east, Paint()..color = const Color(0x33000000));
+    // الواجهة الأمامية (مايلة مثل الجانب)
+    c.save();
+    c.translate(g.left, g.bottom);
+    c.skew(-sk / hh, 0);
+    final fw = g.width;
+    const cols = 5;
+    final cw = fw / cols;
+    final rows = hs.floors;
+    final rh = hh / rows;
+    for (var row = 0; row < rows; row++) {
+      for (var i = 0; i < cols; i++) {
+        final cell = Rect.fromLTWH(i * cw, -hh + row * rh, cw + 0.7, rh + 0.7);
+        _spr(c, brick, cell);
+        final sq = min(cw, rh) * 0.86;
+        final win = Rect.fromCenter(center: cell.center, width: sq, height: sq);
+        if (row == rows - 1 && i == 2) {
+          _spr(c, 285, win);
+        } else {
+          _spr(c, 336, win);
+          final glass = win.deflate(sq * 0.32);
+          c.drawRect(glass, Paint()..color = hs.lit ? const Color(0xDDFFD54F) : const Color(0xCC10141C));
+        }
+      }
+    }
+    // خط بين الطوابق
+    if (rows > 1) c.drawRect(Rect.fromLTWH(0, -hh + rh - 2, fw, 4), Paint()..color = const Color(0x66000000));
+    if (!hs.lit) c.drawRect(Rect.fromLTWH(0, -hh, fw, hh), Paint()..color = const Color(0x88000018));
+    if (hs.flash > 0) {
+      c.drawRect(Rect.fromLTWH(0, -hh, fw, hh), Paint()..color = Color.fromARGB((hs.flash / 0.6 * 200).round().clamp(0, 255), 255, 255, 255));
+    }
+    c.restore();
+    // السطح
     _nine(c, hs.style % 2 == 0 ? 81 : 89, roof, tile * 0.4, _roofPaint(hs.style));
     _spr(c, 280, Rect.fromLTWH(roof.left + tile * 0.15, roof.top + tile * 0.12, tile * 0.42, tile * 0.42));
-    final brick = hs.style % 3 == 0 ? 72 : (hs.style % 3 == 1 ? 180 : 99);
-    const cols = 5;
-    final cw = wall.width / cols;
-    for (var i = 0; i < cols; i++) {
-      final cell = Rect.fromLTWH(wall.left + i * cw, wall.top, cw + 0.7, wall.height + 0.7);
-      _spr(c, brick, cell);
-      final sq = min(cw, wall.height) * 0.92;
-      final win = Rect.fromCenter(center: cell.center, width: sq, height: sq);
-      if (i == 2) {
-        _spr(c, 285, win);
-      } else {
-        _spr(c, 336, win);
-        final glass = win.deflate(sq * 0.32);
-        c.drawRect(glass, Paint()..color = hs.lit ? const Color(0xDDFFD54F) : const Color(0xCC10141C));
-      }
-    }
-    if (!hs.lit) c.drawRect(r, Paint()..color = const Color(0x88000018));
+    if (hs.floors == 2) _spr(c, 254, Rect.fromLTWH(roof.right - tile * 0.6, roof.top + tile * 0.15, tile * 0.42, tile * 0.42));
+    if (!hs.lit) c.drawRect(roof, Paint()..color = const Color(0x88000018));
     if (hs.flash > 0) {
-      c.drawRect(r, Paint()..color = Color.fromARGB((hs.flash / 0.6 * 200).round().clamp(0, 255), 255, 255, 255));
+      c.drawRect(roof, Paint()..color = Color.fromARGB((hs.flash / 0.6 * 200).round().clamp(0, 255), 255, 255, 255));
     }
-    if (hs.angry > 0) _say(c, '😡', r.topCenter.translate(0, -tile * 0.2 - (2.5 - hs.angry) * 10), tile * 0.6, Colors.white);
+    if (behind) c.restore();
+    if (hs.angry > 0) _say(c, '😡', roof.topCenter.translate(0, -tile * 0.2 - (2.5 - hs.angry) * 10), tile * 0.6, Colors.white);
   }
 
+  /// زينة: شجرة أو عمود إنارة بزاوية الرصيف الجنوبية
+  void _decor(Canvas c, House hs, int n) {
+    final r = R(hs.rect.inflate(0.25));
+    final ts = tile * 0.55;
+    if (n % 2 == 0) {
+      _spr(c, 260, Rect.fromLTWH(r.left - ts * 0.1, r.bottom - ts * 1.8, ts, ts));
+      _spr(c, 287, Rect.fromLTWH(r.left - ts * 0.1, r.bottom - ts * 0.8, ts, ts));
+    } else if (n % 3 == 0) {
+      _spr(c, 165, Rect.fromLTWH(r.right - ts * 0.9, r.bottom - ts * 1.8, ts, ts));
+      _spr(c, 192, Rect.fromLTWH(r.right - ts * 0.9, r.bottom - ts * 0.8, ts, ts));
+    }
+  }
+
+  void _walker(Canvas c, Walker wk) {
+    if (!_visible(Rect.fromCircle(center: wk.pos, radius: 1))) return;
+    final h = tile * 0.85;
+    _drawChar(c, _charFrame(wk.sprite, wk.dir, true, wd.clock * 0.6 + wk.ring.left), P(wk.pos).translate(0, h * 0.2), h);
+  }
+
+  void _greeter(Canvas c, Greeter g) {
+    if (!_visible(Rect.fromCircle(center: g.pos, radius: 1))) return;
+    final h = tile * 0.9;
+    final feet = P(g.pos).translate(0, h * 0.2 - sin(min(1.0, (2.2 - g.t) * 4) * pi) * tile * 0.15);
+    _drawChar(c, g.sprite + 1, feet, h);
+    // فقاعة كلام
+    final tp = _text(g.text, 15, const Color(0xFF1A1A1A));
+    final b = Rect.fromCenter(center: feet.translate(0, -h * 1.25), width: tp.width + 16, height: tp.height + 10);
+    c.drawRRect(RRect.fromRectAndRadius(b, const Radius.circular(12)), Paint()..color = Colors.white);
+    c.drawPath(
+        Path()
+          ..moveTo(b.center.dx - 6, b.bottom)
+          ..lineTo(b.center.dx + 6, b.bottom)
+          ..lineTo(b.center.dx, b.bottom + 8)
+          ..close(),
+        Paint()..color = Colors.white);
+    tp.paint(c, Offset(b.left + 8, b.top + 5));
+  }
+
+  /// أطفال يلعبون طوبة بالحديقة
+  void _kids(Canvas c, Rect park, int k) {
+    if (!_visible(park)) return;
+    final a = park.center + const Offset(-0.6, 0.35), b = park.center + const Offset(0.6, 0.35);
+    final h = tile * 0.7;
+    final t = (wd.clock * 0.8 + k) % 2;
+    final f = t < 1 ? t : 2 - t;
+    _drawChar(c, 23 + 3, P(a).translate(0, h * 0.2), h);
+    _drawChar(c, 104, P(b).translate(0, h * 0.2), h);
+    final ball = P(Offset.lerp(a, b, f)!).translate(0, -sin(f * pi) * tile * 0.5);
+    c.drawCircle(P(Offset.lerp(a, b, f)!).translate(0, h * 0.15), tile * 0.08, Paint()..color = const Color(0x55000000));
+    c.drawCircle(ball, tile * 0.11, Paint()..color = Colors.white);
+    c.drawCircle(ball, tile * 0.11, Paint()
+      ..color = const Color(0xFF212121)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2);
+  }
+
+
   void _houseAlarm(Canvas c, House hs) {
-    final r = R(hs.rect);
-    final center = Offset(r.center.dx, r.top + r.height * 0.32);
+    final center = _roofCenter(hs);
     final pulse = (sin(wd.clock * (hs.dark < 3 ? 14 : 7)) + 1) / 2;
     final rad = tile * 0.42;
     c.drawCircle(center, rad + pulse * tile * 0.18, Paint()..color = Color.fromARGB((90 + pulse * 90).round(), 255, 23, 68));
@@ -667,6 +798,9 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     c.scale(1 / squash, squash);
     c.drawImageRect(img, Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()), Rect.fromLTWH(-ww / 2, -hh, ww, hh),
         wd.stun > 0 ? _heroHurt : _heroPaint);
+    // القبعة من المتجر
+    final hat = wd.cos.eq('hat');
+    if (hat.id != 'hat0') _say(c, hat.icon, Offset(ww * 0.04, -hh * 0.93), h * 0.5, Colors.white);
     c.restore();
   }
 
@@ -749,14 +883,15 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
       ..strokeWidth = 2.5;
     // ذيل
     final tail = RRect.fromRectAndRadius(Rect.fromLTWH(-s * 1.05, -s * 0.07, s * 0.75, s * 0.14), Radius.circular(s * 0.07));
-    c.drawRRect(tail, Paint()..color = const Color(0xFFC62828));
+    final hc = Color(wd.cos.eq('heli').color);
+    c.drawRRect(tail, Paint()..color = Color.lerp(hc, Colors.black, 0.15)!);
     c.drawRRect(tail, ink);
     final fin = Rect.fromCenter(center: Offset(-s * 1.0, 0), width: s * 0.12, height: s * 0.45);
-    c.drawRect(fin, Paint()..color = const Color(0xFFB71C1C));
+    c.drawRect(fin, Paint()..color = Color.lerp(hc, Colors.black, 0.3)!);
     c.drawRect(fin, ink);
     // جسم
     final body = Rect.fromCenter(center: Offset.zero, width: s * 0.9, height: s * 0.55);
-    c.drawOval(body, Paint()..color = const Color(0xFFE53935));
+    c.drawOval(body, Paint()..color = hc);
     c.drawOval(body, ink);
     c.drawOval(Rect.fromCenter(center: Offset(s * 0.22, 0), width: s * 0.36, height: s * 0.38), Paint()..color = const Color(0xFF81D4FA));
     c.drawOval(Rect.fromCenter(center: Offset(s * 0.22, 0), width: s * 0.36, height: s * 0.38), ink);
@@ -783,6 +918,95 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     }
   }
 
+  String _truckTintId = '';
+  Paint _truckP = Paint();
+  Paint _truckPaint() {
+    final it = wd.cos.eq('truck');
+    if (it.id != _truckTintId) {
+      _truckTintId = it.id;
+      _truckP = Paint()..filterQuality = FilterQuality.none;
+      if (it.id != 'truck0') _truckP.colorFilter = ColorFilter.mode(Color(it.color), BlendMode.modulate);
+    }
+    return _truckP;
+  }
+
+  /// خريطة صغيرة بالزاوية
+  void _minimap(Canvas c) {
+    const mw = 92.0;
+    final mh = mw * wd.h / wd.w;
+    final o = Offset(12, size.y - 48 - mh);
+    final k = mw / wd.w;
+    final box = Rect.fromLTWH(o.dx, o.dy, mw, mh);
+    c.drawRRect(RRect.fromRectAndRadius(box.inflate(4), const Radius.circular(10)), Paint()..color = const Color(0xCC0B1020));
+    Offset m(Offset w) => o + w * k;
+    final blink = (wd.clock * 4).floor().isEven;
+    for (final hs in wd.houses) {
+      final r = Rect.fromLTWH(o.dx + hs.rect.left * k, o.dy + hs.rect.top * k, hs.rect.width * k, hs.rect.height * k);
+      c.drawRect(r, Paint()..color = hs.lit ? const Color(0xFF546E7A) : (blink ? const Color(0xFFFF1744) : const Color(0xFFFFC107)));
+    }
+    for (final pk in wd.parks) {
+      c.drawRect(Rect.fromLTWH(o.dx + pk.left * k, o.dy + pk.top * k, pk.width * k, pk.height * k), Paint()..color = const Color(0xFF2E7D32));
+    }
+    c.drawRect(Rect.fromLTWH(o.dx + wd.generator.left * k, o.dy + wd.generator.top * k, wd.generator.width * k, wd.generator.height * k),
+        Paint()..color = const Color(0xFFFFEB3B));
+    if (wd.cfg.fuelDrain > 0) {
+      c.drawRect(Rect.fromLTWH(o.dx + wd.station.left * k, o.dy + wd.station.top * k, wd.station.width * k, wd.station.height * k),
+          Paint()..color = const Color(0xFFFF9800));
+    }
+    if (wd.cfg.vehicle && !wd.riding) c.drawCircle(m(wd.truck), 2.5, Paint()..color = const Color(0xFF69F0AE));
+    if (wd.cfg.heli && !wd.flying) c.drawCircle(m(wd.heli), 2.5, Paint()..color = const Color(0xFFFF5252));
+    for (final t in wd.thieves) {
+      c.drawCircle(m(t.pos), 2.5, Paint()..color = const Color(0xFFD500F9));
+    }
+    for (final t in wd.thugs) {
+      c.drawCircle(m(t.pos), t.boss ? 4 : 2, Paint()..color = t.boss ? const Color(0xFFD50000) : const Color(0xFFFF8A80));
+    }
+    // اللي يبين بالشاشة
+    c.drawRect(Rect.fromLTRB(o.dx + view.left * k, o.dy + view.top * k, o.dx + view.right * k, o.dy + view.bottom * k).intersect(box), Paint()
+      ..color = const Color(0x88FFFFFF)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1);
+    c.drawCircle(m(wd.player), 3.5, Paint()..color = Colors.white);
+    c.drawCircle(m(wd.player), 5.5, Paint()
+      ..color = const Color(0xFFFFC107)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5);
+  }
+
+  /// محطة الوقود: تملي التانكر بالسيارة
+  void _station(Canvas c) {
+    final st = wd.station;
+    if (wd.cfg.fuelDrain <= 0 || !_visible(st)) return;
+    _nine(c, 8, R(st.inflate(0.25)), tile * 0.4);
+    final r = R(st);
+    // أرضية + مضخات
+    c.drawRect(r.deflate(tile * 0.15), Paint()..color = const Color(0xFF455A64));
+    for (var k = 0; k < 2; k++) {
+      final pr = Rect.fromCenter(center: Offset(r.left + r.width * (0.33 + k * 0.34), r.center.dy + tile * 0.2), width: tile * 0.35, height: tile * 0.55);
+      c.drawRRect(RRect.fromRectAndRadius(pr, Radius.circular(tile * 0.06)), Paint()..color = const Color(0xFFE53935));
+      c.drawRect(Rect.fromLTWH(pr.left + pr.width * 0.2, pr.top + pr.height * 0.15, pr.width * 0.6, pr.height * 0.25), Paint()..color = Colors.white);
+    }
+    // مظلة
+    final roof = Rect.fromLTWH(r.left, r.top, r.width, r.height * 0.32);
+    c.drawRRect(RRect.fromRectAndRadius(roof, Radius.circular(tile * 0.08)), Paint()..color = const Color(0xFFD32F2F));
+    c.drawRect(Rect.fromLTWH(roof.left, roof.bottom - tile * 0.12, roof.width, tile * 0.12), Paint()..color = Colors.white);
+    _say(c, '⛽ محطة', roof.center.translate(0, -tile * 0.04), tile * 0.3, Colors.white);
+    if (wd.riding && !wd.flying && !wd.tanker) {
+      c.drawRect(r.inflate(tile * 0.1), Paint()
+        ..color = Color.fromARGB((120 + sin(wd.clock * 8) * 100).round(), 255, 179, 0)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4);
+    }
+  }
+
+  void _heliFuelBar(Canvas c) {
+    final r = Rect.fromLTWH(size.x - 132, size.y - 30, 110, 12);
+    c.drawRRect(RRect.fromRectAndRadius(r.inflate(3), const Radius.circular(8)), Paint()..color = const Color(0xCC000000));
+    c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(r.left, r.top, r.width * wd.heliFuel.clamp(0.0, 1.0), r.height), const Radius.circular(6)),
+        Paint()..color = wd.heliFuel < 0.25 ? const Color(0xFFFF1744) : const Color(0xFF80D8FF));
+    _say(c, '🚁', Offset(r.left - 16, r.center.dy), 16, Colors.white);
+  }
+
   /// سيارة الشغل (بيك أب) تدور على أي اتجاه
   void _truck(Canvas c, Offset world, double angle, bool driving) {
     if (!_visible(Rect.fromCircle(center: world, radius: 1))) return;
@@ -797,8 +1021,9 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     if (driving) {
       c.drawRRect(RRect.fromRectAndRadius(dst.inflate(tile * 0.08), Radius.circular(tile * 0.2)), Paint()..color = const Color(0x88FFC107));
     }
-    c.drawImageRect(_sheet!, src, dst, _px);
+    c.drawImageRect(_sheet!, src, dst, _truckPaint());
     c.restore();
+    if (wd.tanker) _say(c, '⛽', p.translate(tile * 0.35, -tile * 0.75), tile * 0.4, Colors.white);
     if (driving) {
       if (_hero != null) {
         // نص الشخصية الفوگاني طالع من السيارة
@@ -1012,6 +1237,13 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     }
     if (wd.cfg.vehicle && !wd.riding) arrow(wd.truck, '🚙', const Color(0xFF43A047));
     if (wd.cfg.heli && !wd.flying) arrow(wd.heli, '🚁', const Color(0xFFE53935));
+    if (wd.cfg.fuelDrain > 0 && wd.riding && !wd.flying) {
+      if (wd.tanker) {
+        arrow(wd.generator.center, '🏭', const Color(0xFF69F0AE), pulse: true);
+      } else {
+        arrow(wd.station.center, '⛽', const Color(0xFFFFB300), pulse: wd.fuel < 0.4);
+      }
+    }
     if (wd.cfg.fuelDrain > 0 && wd.fuel < 0.35) {
       for (final p in wd.pickups) {
         if (p.kind == 0) arrow(p.pos, '⛽', const Color(0xFFFFB300));

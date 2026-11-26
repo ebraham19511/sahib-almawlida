@@ -4,6 +4,8 @@ import 'dart:ui' show Offset, Rect;
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'progress.dart';
+
 /// إعدادات كل مرحلة. 40 مرحلة، كل وحدة أصعب من اللي قبلها
 class LevelCfg {
   final String title;
@@ -60,8 +62,8 @@ const _titles = [
 
 const _intro = {
   0: '⚡ اركض للبيت الطافي.. و🚙 اركب سيارة الشغل حتى توصل أسرع',
-  1: '🚁 جرّب الهليكوبتر: تطير فوگ البيوت! ودير بالك من السيارات 🚗',
-  2: '⛽ لمّ الكاز حتى المولدة ما توكف',
+  1: '🚁 الهليكوبتر تصلّح البيوت من الجو! حوم فوگ البيت الطافي.. بس انتبه لوقودها',
+  2: '⛽ الكاز يخلص! 🚚 اركب السيارة، املي التانكر من المحطة، وودّيه للمولدة',
   3: '🦹 الحرامي يگص الواير ويهرب.. الحگه أو اضربه 👊',
   4: '🌙 الدنيا ظلمة.. اتبع الأسهم',
   5: '⚡💧 المطر كهرب المي! لا تدوس على المي وهي تشرّر',
@@ -132,9 +134,30 @@ List<LevelCfg> buildLevels() {
 
 final List<LevelCfg> levels = buildLevels();
 
+/// ماشي على الرصيف حوالين بلوك
+class Walker {
+  final Rect ring;
+  double t;
+  final double speed;
+  final int sprite;
+  Offset pos = Offset.zero;
+  Offset dir = const Offset(1, 0);
+  Walker(this.ring, this.t, this.speed, this.sprite);
+}
+
+/// صاحب البيت يطلع يشكرك
+class Greeter {
+  final Offset pos;
+  final int sprite;
+  double t;
+  final String text;
+  Greeter(this.pos, this.sprite, this.t, this.text);
+}
+
 class House {
   final Rect rect;
   final int style;
+  int get floors => style % 3 == 0 ? 2 : 1;
   bool lit = true;
   double dark = 0;
   double flash = 0;
@@ -333,9 +356,22 @@ class ArcadeWorld extends ChangeNotifier {
   Offset heli = Offset.zero;
   double heliFace = 0;
   bool nearHeli = false;
+  // فايدة الهليكوبتر: تصلّح من الجو بس وقودها محدود
+  double heliFuel = 1;
+  int _hoverHouse = -1;
+  double hoverT = 0;
+  bool _heliTip = false, _truckTip = false;
+  // فايدة السيارة: تانكر كاز من المحطة للمولدة
+  Rect station = Rect.zero;
+  bool tanker = false;
+  int get hoverHouse => _hoverHouse;
   double _rideNag = 0;
 
   List<House> houses = [];
+  final List<Walker> walkers = [];
+  final List<Greeter> greeters = [];
+  final DailyMissions missions = DailyMissions();
+  final Cosmetics cos = Cosmetics();
   final List<Thief> thieves = [];
   final List<Thug> thugs = [];
   final List<Puddle> puddles = [];
@@ -385,6 +421,8 @@ class ArcadeWorld extends ChangeNotifier {
     truckFace = 0;
     heli = Offset(plaza.left - 0.8, plaza.top - 0.9);
     heliFace = 0;
+    // محطة الوقود بآخر المدينة (بعيدة عن المولدة)
+    station = Rect.fromLTWH(w - 3.2, h - 3.2, 2.4, 2.2);
     final r = Random(c.seed);
     houses = [];
     parks = [];
@@ -394,6 +432,7 @@ class ArcadeWorld extends ChangeNotifier {
         final rect = Rect.fromLTWH(0.8 + i * 4.0, 0.8 + j * 4.0, 2.4, 2.2);
         k++;
         if (rect.overlaps(plaza)) continue;
+        if (rect.overlaps(station)) continue; // محطة الوقود
         // بعض البلوكات حدايق (تگدر تعبر منها)
         if (c.seed > 30 && r.nextDouble() < 0.14) {
           parks.add(rect);
@@ -402,6 +441,15 @@ class ArcadeWorld extends ChangeNotifier {
         houses.add(House(rect, k));
       }
     }
+    // ناس تمشي على الأرصفة
+    walkers.clear();
+    final wr = Random(c.seed + 1);
+    final n = min(16, houses.length ~/ 2);
+    for (var k = 0; k < n; k++) {
+      final hs = houses[wr.nextInt(houses.length)];
+      walkers.add(Walker(hs.rect.inflate(0.16), wr.nextDouble() * 9, (0.7 + wr.nextDouble() * 0.6) * (wr.nextBool() ? 1 : -1), const [23, 104, 185][wr.nextInt(3)]));
+    }
+    greeters.clear();
   }
 
   // ---------- التقدم ----------
@@ -421,6 +469,8 @@ class ArcadeWorld extends ChangeNotifier {
         }
       }
       coins = p.getInt('coins') ?? 0;
+      await missions.load(p);
+      await cos.load(p);
       extraHearts = p.getInt('xhearts') ?? 0;
       final u = p.getStringList('upg');
       if (u != null) {
@@ -440,6 +490,8 @@ class ArcadeWorld extends ChangeNotifier {
       await p.setInt('coins', coins);
       await p.setInt('xhearts', extraHearts);
       await p.setStringList('upg', upg.map((e) => '$e').toList());
+      await missions.save(p);
+      await cos.save(p);
     } catch (_) {}
   }
 
@@ -464,6 +516,10 @@ class ArcadeWorld extends ChangeNotifier {
     flying = false;
     nearTruck = false;
     nearHeli = false;
+    heliFuel = 1;
+    _hoverHouse = -1;
+    hoverT = 0;
+    tanker = false;
     timeLeft = cfg.duration;
     score = 0;
     hearts = 3;
@@ -557,6 +613,8 @@ class ArcadeWorld extends ChangeNotifier {
       if (lastStars == 0) lostReason = '⭐ تحتاج ${s[0]} نقطة للنجمة الأولى';
       lastCoins = score ~/ 10 + lastStars * 20;
       coins += lastCoins;
+      _mission('stars', lastStars);
+      _mission('play', 1);
       sfx(lastStars > 0 ? 'win' : 'miss');
       _saveProgress();
     } else {
@@ -566,6 +624,7 @@ class ArcadeWorld extends ChangeNotifier {
       if (lostReason.isEmpty) lostReason = '😡 الناس زعلت';
       lastCoins = score ~/ 20;
       coins += lastCoins;
+      _mission('play', 1);
       _saveProgress();
       sfx('miss');
     }
@@ -634,11 +693,19 @@ class ArcadeWorld extends ChangeNotifier {
       return;
     }
     if (!riding && nearHeli && cfg.heli) {
+      if (heliFuel < 0.15) {
+        floats.add(FloatText(heli, '⛽ الهليكوبتر تتعبى..', 0xFFFFFFFF));
+        return;
+      }
       riding = true;
       flying = true;
       player = heli;
       face = heliFace;
       sfx('engine');
+      if (!_heliTip) {
+        _heliTip = true;
+        _say('🚁 طير فوگ البيت الطافي وصلّحه من الجو!');
+      }
       nearHeli = false;
       nearTruck = false;
       notifyListeners();
@@ -661,6 +728,10 @@ class ArcadeWorld extends ChangeNotifier {
       player = truck;
       face = truckFace;
       sfx('engine');
+      if (!_truckTip && cfg.fuelDrain > 0) {
+        _truckTip = true;
+        _say(tanker ? '🚚 ودّي الكاز للمولدة!' : '🚚 روح لمحطة الوقود ⛽ واملي التانكر');
+      }
     }
     nearTruck = false;
     notifyListeners();
@@ -711,7 +782,10 @@ class ArcadeWorld extends ChangeNotifier {
       bannerT -= dt;
       if (bannerT <= 0) notifyListeners();
     }
-    if (phase == Phase.menu || phase == Phase.countdown || phase == Phase.playing) _updateCars(dt);
+    if (phase == Phase.menu || phase == Phase.countdown || phase == Phase.playing) {
+      _updateCars(dt);
+      _updateWalkers(dt);
+    }
 
     if (phase == Phase.countdown) {
       final before = countdown.ceil();
@@ -743,6 +817,8 @@ class ArcadeWorld extends ChangeNotifier {
     if (attackT > 0) attackT -= dt;
     if (_rideNag > 0) _rideNag -= dt;
     _movePlayer(dt);
+    _updateVehicles(dt);
+    if (phase != Phase.playing) return;
     _carHits();
     _updateHouses(dt);
     if (phase != Phase.playing) return;
@@ -833,6 +909,10 @@ class ArcadeWorld extends ChangeNotifier {
     } else {
       _slide(player, dir * sp, riding ? 0.38 : radius, (p) => player = p);
     }
+    final trail = cos.eq('trail');
+    if (trail.id != 'trail0' && !flying && _rnd.nextDouble() < 0.55) {
+      particles.add(Particle(player + Offset((_rnd.nextDouble() - 0.5) * 0.3, 0.2), Offset(-dir.dx, -dir.dy) * 0.8 + const Offset(0, -0.5), trail.color, 0.5, 0.06));
+    }
     if (boostTimer > 0 && _rnd.nextDouble() < 0.5) {
       particles.add(Particle(player, Offset(-dir.dx, -dir.dy) * 1.5, 0xFF80D8FF, 0.35, 0.06));
     }
@@ -848,6 +928,158 @@ class ArcadeWorld extends ChangeNotifier {
   }
 
   bool get generatorOn => cfg.fuelDrain == 0 || fuel > 0;
+
+  void _updateWalkers(double dt) {
+    for (final wk in walkers) {
+      wk.t += wk.speed * dt;
+      final r = wk.ring;
+      final per = 2 * (r.width + r.height);
+      final s = ((wk.t % per) + per) % per;
+      Offset p, d;
+      if (s < r.width) {
+        p = Offset(r.left + s, r.top);
+        d = const Offset(1, 0);
+      } else if (s < r.width + r.height) {
+        p = Offset(r.right, r.top + s - r.width);
+        d = const Offset(0, 1);
+      } else if (s < 2 * r.width + r.height) {
+        p = Offset(r.right - (s - r.width - r.height), r.bottom);
+        d = const Offset(-1, 0);
+      } else {
+        p = Offset(r.left, r.bottom - (s - 2 * r.width - r.height));
+        d = const Offset(0, -1);
+      }
+      wk.pos = p;
+      wk.dir = wk.speed < 0 ? -d : d;
+    }
+    for (final g in greeters) {
+      g.t -= dt;
+    }
+    greeters.removeWhere((g) => g.t <= 0);
+  }
+
+  // ---------- المهام والمتجر ----------
+  void _mission(String id, int n) {
+    if (n <= 0) return;
+    if (missions.add(id, n) && phase == Phase.playing) _say('🎯 خلصت مهمة! استلم جائزتك من المهام');
+  }
+
+  bool claimMission(int i) {
+    if (i < 0 || i >= missions.list.length) return false;
+    final m = missions.list[i];
+    if (!m.done || m.claimed) return false;
+    m.claimed = true;
+    coins += m.reward;
+    sfx('win');
+    _saveProgress();
+    notifyListeners();
+    return true;
+  }
+
+  int claimLogin() {
+    final r = missions.claimLogin();
+    if (r > 0) {
+      coins += r;
+      sfx('win');
+      _saveProgress();
+      notifyListeners();
+    }
+    return r;
+  }
+
+  bool buyCos(String id) {
+    final it = cos.item(id);
+    if (cos.owned.contains(id) || coins < it.cost) return false;
+    coins -= it.cost;
+    cos.owned.add(id);
+    cos.equipped[it.kind] = id;
+    sfx('coin');
+    _saveProgress();
+    notifyListeners();
+    return true;
+  }
+
+  void equipCos(String id) {
+    if (!cos.owned.contains(id)) return;
+    cos.equipped[cos.item(id).kind] = id;
+    sfx('kick');
+    _saveProgress();
+    notifyListeners();
+  }
+
+  /// أول مرحلة مفتوحة وما بيها 3 نجوم (حتى زر "العب" يكمل منها)
+  int get nextLevel {
+    var last = 0;
+    for (var i = 0; i < levels.length; i++) {
+      if (!unlocked(i)) break;
+      last = i;
+      if (stars[i] < 3) return i;
+    }
+    return last;
+  }
+
+  /// الهليكوبتر: وقود + تصليح من الجو. السيارة: تانكر كاز
+  void _updateVehicles(double dt) {
+    if (flying) {
+      heliFuel -= dt / (16 + 4.0 * upg[3]);
+      if (heliFuel <= 0) {
+        heliFuel = 0;
+        _say('🚁 خلص وقود الهليكوبتر! نزلت');
+        toggleRide();
+        return;
+      }
+      // نحوم فوگ بيت طافي = نصلّحه
+      var over = -1;
+      for (var i = 0; i < houses.length; i++) {
+        if (!houses[i].lit && houses[i].rect.inflate(0.2).contains(player)) {
+          over = i;
+          break;
+        }
+      }
+      if (over != _hoverHouse) {
+        _hoverHouse = over;
+        hoverT = 0;
+      }
+      if (over >= 0) {
+        hoverT += dt;
+        if (hoverT >= 0.7) {
+          if (generatorOn) {
+            _fix(over);
+            _mission('heli', 1);
+            score += 50;
+            floats.add(FloatText(houses[over].center.translate(0, -0.6), '🚁 +50', 0xFF80D8FF));
+          } else {
+            floats.add(FloatText(houses[over].center, '⛽ الكاز!', 0xFFFF5252));
+          }
+          _hoverHouse = -1;
+          hoverT = 0;
+        }
+      }
+    } else {
+      _hoverHouse = -1;
+      hoverT = 0;
+      if (cfg.heli) heliFuel = min(1.0, heliFuel + dt / 10);
+    }
+    // التانكر
+    if (riding && !flying && cfg.fuelDrain > 0) {
+      if (!tanker && _distToRect(player, station) < 1.4) {
+        tanker = true;
+        sfx('pump');
+        floats.add(FloatText(player, '⛽ انملى التانكر!', 0xFFFFB300));
+        _say('🚚 هسه ودّيه للمولدة');
+      }
+      if (tanker && _distToRect(player, generator) < 1.8) {
+        tanker = false;
+        fuel = 1;
+        _mission('tanker', 1);
+        score += 150;
+        sfx('win');
+        floats.add(FloatText(generator.center, '⛽ مولدة مليانة +150', 0xFF69F0AE));
+        _burst(generator.center, 0xFFFFB300, 20, 3, 0.08);
+        notifyListeners();
+      }
+    }
+  }
 
   // ---------- الصحة ----------
   void _hurtPlayer(double amount, Offset from, String icon) {
@@ -1031,6 +1263,11 @@ class ArcadeWorld extends ChangeNotifier {
     comboTimer = 4.0;
     sfx('coin');
     _burst(hs.center, 0xFFFFD54F, 14, 3, 0.07);
+    _mission('fix', 1);
+    // صاحب البيت يطلع يشكرك
+    const thanks = ['شكراً! 🙏', 'الله يخليك ❤️', 'عاشت إيدك! 👏', 'رجعت الكهرباء! 💡', 'يا بطل! 💪'];
+    greeters.add(Greeter(Offset(hs.center.dx, hs.rect.bottom + 0.3), const [23, 104, 185][_rnd.nextInt(3)], 2.2, thanks[_rnd.nextInt(thanks.length)]));
+    if (greeters.length > 4) greeters.removeAt(0);
     notifyListeners();
   }
 
@@ -1128,6 +1365,7 @@ class ArcadeWorld extends ChangeNotifier {
   void _catchThief(Thief t) {
     if (!thieves.remove(t)) return;
     caught++;
+    _mission('thief', 1);
     final pts = t.state == ThiefState.fleeing ? 300 : 150;
     score += pts;
     sfx('goal');
@@ -1358,6 +1596,7 @@ class ArcadeWorld extends ChangeNotifier {
     if (t.hp <= 0) {
       thugs.remove(t);
       beaten++;
+      _mission('gang', 1);
       final pts = t.boss ? 1500 : 120;
       score += pts;
       floats.add(FloatText(t.pos, t.boss ? '🏆 +$pts' : '👊 +$pts', 0xFF69F0AE));

@@ -4,6 +4,7 @@ import '../game/ads.dart';
 import '../game/music.dart';
 import '../game/sound.dart';
 import 'game.dart';
+import 'progress.dart';
 import 'world.dart';
 
 const _gold = Color(0xFFFFC107);
@@ -124,48 +125,335 @@ class _Menu extends StatelessWidget {
   final ArcadeWorld wd;
   const _Menu({required this.wd});
 
+  void _push(BuildContext context, Widget page) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
+
   @override
   Widget build(BuildContext context) {
+    final next = wd.nextLevel;
     return SafeArea(
       child: Column(
         children: [
-          const Align(alignment: AlignmentDirectional.topEnd, child: Padding(padding: EdgeInsets.all(8), child: _SoundToggles())),
-          const GameLogo(),
-          const SizedBox(height: 6),
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Text('⭐ ${wd.totalStars} / ${levels.length * 3}', style: const TextStyle(fontSize: 18, color: Colors.white70)),
-            const SizedBox(width: 16),
-            Text('🪙 ${wd.coins}', style: const TextStyle(fontSize: 18, color: _gold, fontWeight: FontWeight.bold)),
-            const SizedBox(width: 16),
-            FilledButton.icon(
-              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF6A1B9A)),
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ShopPage(wd: wd))),
-              icon: const Icon(Icons.storefront_rounded),
-              label: const Text('المتجر', style: TextStyle(fontWeight: FontWeight.bold)),
-            ),
-          ]),
-          const SizedBox(height: 14),
-          Expanded(
-            child: GridView.count(
-              crossAxisCount: 4,
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              children: [
-                for (var i = 0; i < levels.length; i++) _LevelButton(wd: wd, index: i),
-              ],
-            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            child: Row(children: [
+              _Chip(text: '⭐ ${wd.totalStars}'),
+              const SizedBox(width: 8),
+              _Chip(text: '🪙 ${wd.coins}', color: _gold),
+              const Spacer(),
+              _Round(icon: Icons.settings_rounded, onTap: () => _push(context, SettingsPage(wd: wd))),
+            ]),
           ),
+          const Spacer(),
+          const GameLogo(),
+          const SizedBox(height: 10),
+          Text('المرحلة ${next + 1}: ${levels[next].title}', style: const TextStyle(fontSize: 16, color: Colors.white70)),
+          const SizedBox(height: 14),
+          _PlayButton(onTap: () => wd.start(next)),
+          const SizedBox(height: 22),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            child: Row(children: [
+              Expanded(child: _MenuTile(icon: '🗺️', label: 'المراحل', onTap: () => _push(context, LevelsPage(wd: wd)))),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _MenuTile(icon: '🎯', label: 'المهام', badge: wd.missions.readyCount, onTap: () => _push(context, MissionsPage(wd: wd))),
+              ),
+              const SizedBox(width: 12),
+              Expanded(child: _MenuTile(icon: '🛒', label: 'المتجر', onTap: () => _push(context, ShopPage(wd: wd)))),
+            ]),
+          ),
+          const Spacer(flex: 2),
+          const Text('TN', style: TextStyle(fontSize: 14, color: Colors.white38, fontWeight: FontWeight.w900, letterSpacing: 4)),
+          const SizedBox(height: 10),
         ],
       ),
     );
   }
 }
 
+class _Chip extends StatelessWidget {
+  final String text;
+  final Color color;
+  const _Chip({required this.text, this.color = Colors.white});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(color: const Color(0xCC0B1020), borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.white24)),
+        child: Text(text, style: TextStyle(fontSize: 17, color: color, fontWeight: FontWeight.w900)),
+      );
+}
+
+class _PlayButton extends StatefulWidget {
+  final VoidCallback onTap;
+  const _PlayButton({required this.onTap});
+
+  @override
+  State<_PlayButton> createState() => _PlayButtonState();
+}
+
+class _PlayButtonState extends State<_PlayButton> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: _c,
+        builder: (_, child) => Transform.scale(scale: 1 + _c.value * 0.05, child: child),
+        child: Material(
+          color: const Color(0xFF2E7D32),
+          shape: const StadiumBorder(side: BorderSide(color: _gold, width: 3)),
+          elevation: 12,
+          child: InkWell(
+            customBorder: const StadiumBorder(),
+            onTap: widget.onTap,
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 56, vertical: 16),
+              child: Text('▶  العب', style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900)),
+            ),
+          ),
+        ),
+      );
+}
+
+class _MenuTile extends StatelessWidget {
+  final String icon;
+  final String label;
+  final int badge;
+  final VoidCallback onTap;
+  const _MenuTile({required this.icon, required this.label, required this.onTap, this.badge = 0});
+
+  @override
+  Widget build(BuildContext context) => Stack(clipBehavior: Clip.none, children: [
+        Material(
+          color: _panel,
+          borderRadius: BorderRadius.circular(20),
+          elevation: 6,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: onTap,
+            child: Container(
+              height: 92,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.white24)),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Text(icon, style: const TextStyle(fontSize: 34)),
+                const SizedBox(height: 4),
+                Text(label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+              ]),
+            ),
+          ),
+        ),
+        if (badge > 0)
+          PositionedDirectional(
+            top: -6,
+            end: -6,
+            child: Container(
+              padding: const EdgeInsets.all(7),
+              decoration: const BoxDecoration(color: Color(0xFFFF1744), shape: BoxShape.circle),
+              child: Text('$badge', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900)),
+            ),
+          ),
+      ]);
+}
+
+/// صفحة بخلفية غامقة وعنوان (للمراحل والمهام والإعدادات والمتجر)
+class _Page extends StatelessWidget {
+  final String title;
+  final ArcadeWorld wd;
+  final Widget Function(BuildContext) body;
+  final PreferredSizeWidget? bottom;
+  const _Page({required this.title, required this.wd, required this.body, this.bottom});
+
+  @override
+  Widget build(BuildContext context) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Scaffold(
+          backgroundColor: const Color(0xFF101820),
+          appBar: AppBar(
+            backgroundColor: const Color(0xFF101820),
+            title: Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+            bottom: bottom,
+            actions: [
+              AnimatedBuilder(
+                animation: wd,
+                builder: (_, __) => Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Center(child: Text('🪙 ${wd.coins}', style: const TextStyle(fontSize: 20, color: _gold, fontWeight: FontWeight.w900))),
+                ),
+              ),
+            ],
+          ),
+          body: AnimatedBuilder(animation: wd, builder: (context, _) => body(context)),
+        ),
+      );
+}
+
+class LevelsPage extends StatelessWidget {
+  final ArcadeWorld wd;
+  const LevelsPage({super.key, required this.wd});
+
+  @override
+  Widget build(BuildContext context) => _Page(
+        title: '🗺️ المراحل  ⭐ ${wd.totalStars}/${levels.length * 3}',
+        wd: wd,
+        body: (context) => GridView.count(
+          crossAxisCount: 4,
+          padding: const EdgeInsets.all(16),
+          mainAxisSpacing: 12,
+          crossAxisSpacing: 12,
+          children: [
+            for (var i = 0; i < levels.length; i++)
+              _LevelButton(
+                wd: wd,
+                index: i,
+                onPlay: () {
+                  Navigator.of(context).pop();
+                  wd.start(i);
+                },
+              ),
+          ],
+        ),
+      );
+}
+
+class MissionsPage extends StatelessWidget {
+  final ArcadeWorld wd;
+  const MissionsPage({super.key, required this.wd});
+
+  @override
+  Widget build(BuildContext context) => _Page(
+        title: '🎯 المهام اليومية',
+        wd: wd,
+        body: (context) {
+          final ms = wd.missions;
+          return ListView(padding: const EdgeInsets.all(16), children: [
+            // مكافأة الدخول اليومي
+            Card(
+              color: const Color(0xFF4A148C),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(children: [
+                  const Text('🎁', style: TextStyle(fontSize: 44)),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      const Text('هدية اليوم', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+                      Text(ms.loginClaimedToday ? 'رجع باچر وخذ أكثر! (أيام ورا بعض: ${ms.streak})' : 'كل ما تدخل أيام ورا بعض الهدية تكبر',
+                          style: const TextStyle(fontSize: 13, color: Colors.white70)),
+                    ]),
+                  ),
+                  ms.loginClaimedToday
+                      ? const Text('✅', style: TextStyle(fontSize: 28))
+                      : FilledButton(
+                          style: FilledButton.styleFrom(backgroundColor: const Color(0xFF2E7D32)),
+                          onPressed: wd.claimLogin,
+                          child: const Text('استلم', style: TextStyle(fontWeight: FontWeight.w900)),
+                        ),
+                ]),
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text('مهام اليوم (تتجدد كل يوم):', style: TextStyle(fontSize: 15, color: Colors.white70)),
+            const SizedBox(height: 8),
+            for (var i = 0; i < ms.list.length; i++) _missionTile(ms.list[i], i),
+          ]);
+        },
+      );
+
+  Widget _missionTile(Mission m, int i) => Card(
+        color: _panel,
+        margin: const EdgeInsets.only(bottom: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(children: [
+            Text(m.type.icon, style: const TextStyle(fontSize: 36)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(m.text, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 6),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: LinearProgressIndicator(
+                    value: (m.prog / m.goal).clamp(0.0, 1.0),
+                    minHeight: 10,
+                    backgroundColor: Colors.white12,
+                    color: m.done ? const Color(0xFF69F0AE) : _gold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text('${m.prog} / ${m.goal}   •   🪙 ${m.reward}', style: const TextStyle(fontSize: 13, color: Colors.white70)),
+              ]),
+            ),
+            const SizedBox(width: 8),
+            m.claimed
+                ? const Text('✅', style: TextStyle(fontSize: 26))
+                : FilledButton(
+                    style: FilledButton.styleFrom(backgroundColor: m.done ? const Color(0xFF2E7D32) : Colors.white12),
+                    onPressed: m.done ? () => wd.claimMission(i) : null,
+                    child: const Text('استلم', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
+          ]),
+        ),
+      );
+}
+
+class SettingsPage extends StatelessWidget {
+  final ArcadeWorld wd;
+  const SettingsPage({super.key, required this.wd});
+
+  static const _how = [
+    ['⚡', 'البيت الطافي عليه دائرة. اركضله قبل ما يخلص وكته وترجع الكهرباء.'],
+    ['👆', 'اسحب بأي مكان بالشاشة حتى تمشي. اسحب لآخرها وكمّل حتى تركض.'],
+    ['🚙', 'سيارة الشغل: أسرع، وتملي التانكر ⛽ من المحطة وتوديه للمولدة.'],
+    ['🚁', 'الهليكوبتر: حوم فوگ البيت الطافي وتصلحه من الجو. انتبه لوقودها.'],
+    ['⛽', 'إذا خلص كاز المولدة البيوت ما تتصلح. لمّ الجليكانات.'],
+    ['🦹', 'الحرامي يگص الواير ويهرب. الحگه أو اضربه 👊.'],
+    ['👹', 'الزعيم: اطلع من الدائرة الحمرة قبل ما يضرب، واغلبه قبل ما يخلص الوكت.'],
+    ['🔥', 'إذا المولدة سخنت اركضلها واضغط ❄️ بسرعة.'],
+    ['💧', 'المي المكهربة تشرّر. لا تدوس عليها وهي صفرة أو زرگة.'],
+    ['🪙', 'الفلوس تشتري بيها ترقيات وأشكال من المتجر.'],
+  ];
+
+  @override
+  Widget build(BuildContext context) => _Page(
+        title: '⚙️ الإعدادات',
+        wd: wd,
+        body: (context) => ListView(padding: const EdgeInsets.all(16), children: [
+          const Text('الصوت', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: _gold)),
+          const SizedBox(height: 8),
+          const Center(child: _SoundToggles()),
+          const SizedBox(height: 22),
+          const Text('شلون تلعب', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: _gold)),
+          const SizedBox(height: 8),
+          for (final h in _how)
+            Card(
+              color: _panel,
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                leading: Text(h[0], style: const TextStyle(fontSize: 28)),
+                title: Text(h[1], style: const TextStyle(fontSize: 15)),
+              ),
+            ),
+          const SizedBox(height: 20),
+          const Center(child: Text('صاحب المولدة • TN', style: TextStyle(color: Colors.white38, fontWeight: FontWeight.bold))),
+        ]),
+      );
+}
+
 class _LevelButton extends StatelessWidget {
   final ArcadeWorld wd;
   final int index;
-  const _LevelButton({required this.wd, required this.index});
+  final VoidCallback onPlay;
+  const _LevelButton({required this.wd, required this.index, required this.onPlay});
 
   @override
   Widget build(BuildContext context) {
@@ -177,7 +465,7 @@ class _LevelButton extends StatelessWidget {
       elevation: open ? 6 : 0,
       child: InkWell(
         borderRadius: BorderRadius.circular(22),
-        onTap: open ? () => wd.start(index) : null,
+        onTap: open ? onPlay : null,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -552,36 +840,84 @@ class ShopPage extends StatelessWidget {
   final ArcadeWorld wd;
   const ShopPage({super.key, required this.wd});
 
+  static const _kinds = [
+    ['hat', '🎩 القبعات'],
+    ['trail', '✨ أثر المشي'],
+    ['truck', '🚙 لون السيارة'],
+    ['heli', '🚁 لون الهليكوبتر'],
+  ];
+
   @override
   Widget build(BuildContext context) {
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-        backgroundColor: const Color(0xFF101820),
-        appBar: AppBar(
-          backgroundColor: const Color(0xFF101820),
-          title: const Text('🛒 المتجر', style: TextStyle(fontWeight: FontWeight.w900)),
-          actions: [
-            AnimatedBuilder(
-              animation: wd,
-              builder: (_, __) => Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Center(child: Text('🪙 ${wd.coins}', style: const TextStyle(fontSize: 20, color: _gold, fontWeight: FontWeight.w900))),
-              ),
-            ),
-          ],
+    return DefaultTabController(
+      length: 2,
+      child: _Page(
+        title: '🛒 المتجر',
+        wd: wd,
+        bottom: const TabBar(
+          indicatorColor: _gold,
+          labelStyle: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+          tabs: [Tab(text: '💪 ترقيات'), Tab(text: '🎩 أشكال')],
         ),
-        body: AnimatedBuilder(
-          animation: wd,
-          builder: (context, _) => ListView(
+        body: (context) => TabBarView(children: [
+          ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              const Text('تجمع 🪙 من كل مرحلة تلعبها. كل ما تجيب نقاط ونجوم أكثر تاخذ أكثر.',
-                  style: TextStyle(color: Colors.white70, fontSize: 15)),
+              const Text('تجمع 🪙 من المراحل والمهام اليومية.', style: TextStyle(color: Colors.white70, fontSize: 15)),
               const SizedBox(height: 12),
               for (var i = 0; i < ArcadeWorld.shopNames.length; i++) _upgradeTile(context, i),
               _heartTile(context),
             ],
+          ),
+          ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              for (final k in _kinds) ...[
+                Padding(
+                  padding: const EdgeInsets.only(top: 6, bottom: 8),
+                  child: Text(k[1], style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: _gold)),
+                ),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    for (final it in cosItems)
+                      if (it.kind == k[0]) _cosTile(it),
+                  ],
+                ),
+                const SizedBox(height: 14),
+              ],
+            ],
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _cosTile(CosItem it) {
+    final owned = wd.cos.owned.contains(it.id);
+    final on = wd.cos.equipped[it.kind] == it.id;
+    final can = !owned && wd.coins >= it.cost;
+    return SizedBox(
+      width: 104,
+      child: Material(
+        color: on ? const Color(0xFF1B5E20) : _panel,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: owned ? () => wd.equipCos(it.id) : (can ? () => wd.buyCos(it.id) : null),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+            child: Column(children: [
+              Text(it.icon, style: const TextStyle(fontSize: 34)),
+              const SizedBox(height: 4),
+              Text(it.name, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+              const SizedBox(height: 4),
+              Text(
+                on ? '✅ عليك' : (owned ? 'استعمل' : '🪙 ${it.cost}'),
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: on ? Colors.white : (owned || can ? _gold : Colors.white38)),
+              ),
+            ]),
           ),
         ),
       ),
