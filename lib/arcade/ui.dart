@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../game/ads.dart';
 import '../game/music.dart';
 import '../game/sound.dart';
 import 'game.dart';
@@ -319,14 +320,44 @@ class _Result extends StatelessWidget {
           ),
         const SizedBox(height: 6),
         Text('⚡ ${wd.fixes}    👮 ${wd.caught}    👊 ${wd.beaten}', style: const TextStyle(fontSize: 20, color: Colors.white70)),
-        const SizedBox(height: 18),
+        // أزرار الإعلانات بمكافأة (تطلع بس إذا الإعلان جاهز)
+        ValueListenableBuilder<bool>(
+          valueListenable: Ads.rewardedReady,
+          builder: (_, ready, __) {
+            if (!ready) return const SizedBox(height: 18);
+            if (wd.canRevive) {
+              return _AdButton(label: '🎬 شوف إعلان وكمّل ❤️', onTap: () => Ads.showRewarded(wd.revive));
+            }
+            if (!wd.doubled && wd.lastCoins > 0) {
+              return _AdButton(label: '🎬 شوف إعلان وضاعف 🪙', onTap: () => Ads.showRewarded(wd.doubleCoins));
+            }
+            return const SizedBox(height: 18);
+          },
+        ),
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          _Big(icon: Icons.home_rounded, onTap: wd.toMenu),
+          _Big(
+              icon: Icons.home_rounded,
+              onTap: () {
+                Ads.betweenLevels();
+                wd.toMenu();
+              }),
           const SizedBox(width: 14),
-          _Big(icon: Icons.replay_rounded, onTap: () => wd.start(wd.level), main: !hasNext),
+          _Big(
+              icon: Icons.replay_rounded,
+              onTap: () {
+                Ads.betweenLevels();
+                wd.start(wd.level);
+              },
+              main: !hasNext),
           if (hasNext) ...[
             const SizedBox(width: 14),
-            _Big(icon: Icons.skip_next_rounded, onTap: () => wd.start(wd.level + 1), main: true),
+            _Big(
+                icon: Icons.skip_next_rounded,
+                onTap: () {
+                  Ads.betweenLevels();
+                  wd.start(wd.level + 1);
+                },
+                main: true),
           ],
         ]),
       ]),
@@ -690,4 +721,24 @@ class _GameLogoState extends State<GameLogo> with SingleTickerProviderStateMixin
       },
     );
   }
+}
+
+class _AdButton extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  const _AdButton({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFF6A1B9A),
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          ),
+          onPressed: onTap,
+          child: Text(label, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+        ),
+      );
 }

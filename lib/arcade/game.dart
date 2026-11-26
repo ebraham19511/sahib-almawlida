@@ -652,7 +652,7 @@ class Arena extends PositionComponent with DragCallbacks, HasGameReference<Flame
     final img = _hero!;
     if (dir.dx > 0.25) _heroFlip = true;
     if (dir.dx < -0.25) _heroFlip = false;
-    final hh = h * 1.55;
+    final hh = h * 1.05;
     final ww = hh * img.width / img.height;
     final t = wd.clock * (wd.boostTimer > 0 ? 22 : 14 + 8 * wd.running);
     final walk = moving ? sin(t) : 0.0;

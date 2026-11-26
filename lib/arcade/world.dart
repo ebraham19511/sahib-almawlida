@@ -59,10 +59,9 @@ const _titles = [
 ];
 
 const _intro = {
-  0: '⚡ اركض للبيت الطافي ورجّعله الكهرباء',
-  1: '🚗 دير بالك من السيارات! إذا ضربتك تطيح',
-  2: '⛽ لمّ الكاز.. و🚙 اركب سيارة الشغل حتى توصل أسرع (بس انزل حتى تصلّح)',
-  10: '🚁 صار عندك هليكوبتر! تطير فوگ البيوت.. وانزل حتى تصلّح',
+  0: '⚡ اركض للبيت الطافي.. و🚙 اركب سيارة الشغل حتى توصل أسرع',
+  1: '🚁 جرّب الهليكوبتر: تطير فوگ البيوت! ودير بالك من السيارات 🚗',
+  2: '⛽ لمّ الكاز حتى المولدة ما توكف',
   3: '🦹 الحرامي يگص الواير ويهرب.. الحگه أو اضربه 👊',
   4: '🌙 الدنيا ظلمة.. اتبع الأسهم',
   5: '⚡💧 المطر كهرب المي! لا تدوس على المي وهي تشرّر',
@@ -116,8 +115,8 @@ List<LevelCfg> buildLevels() {
       gangEvery: i >= 8 ? max(11.0, 24 - tier * 3 - k * 0.4) : 0,
       gangSize: i >= 8 ? 2 + tier : 0,
       boss: boss,
-      vehicle: i >= 2,
-      heli: i >= 10,
+      vehicle: true,
+      heli: i >= 1,
       nx: nx,
       ny: ny,
       seed: i * 7919 + 13,
@@ -252,6 +251,38 @@ class ArcadeWorld extends ChangeNotifier {
   List<int> upg = [0, 0, 0, 0];
   int extraHearts = 0;
   int lastCoins = 0;
+  bool doubled = false; // ضاعف فلوسه بإعلان
+  bool revived = false; // كمّل بإعلان (مرة وحدة بالمرحلة)
+
+  /// مكافأة الإعلان: ضعف الفلوس
+  void doubleCoins() {
+    if (doubled || lastCoins <= 0) return;
+    doubled = true;
+    coins += lastCoins;
+    lastCoins *= 2;
+    sfx('coin');
+    _saveProgress();
+    notifyListeners();
+  }
+
+  bool get canRevive => phase == Phase.lost && !revived && (hearts <= 0 || (cfg.boss > 0 && boss != null));
+
+  /// مكافأة الإعلان: كمّل نفس المرحلة
+  void revive() {
+    if (!canRevive) return;
+    revived = true;
+    coins -= lastCoins;
+    lastCoins = 0;
+    if (hearts <= 0) hearts = 1;
+    hp = maxHp;
+    if (timeLeft < 20) timeLeft = 20;
+    invuln = 3;
+    lostReason = '';
+    phase = Phase.playing;
+    onMusic?.call(cfg.boss > 0 && boss != null ? 'music_boss' : 'music_main');
+    _saveProgress();
+    _say('❤️ رجعت! كمّل');
+  }
 
   int? upgCost(int i) => upg[i] < upgCosts.length ? upgCosts[upg[i]] : null;
 
@@ -438,6 +469,8 @@ class ArcadeWorld extends ChangeNotifier {
     hearts = 3;
     hp = maxHp;
     lastCoins = 0;
+    doubled = false;
+    revived = false;
     combo = 1;
     fixes = 0;
     caught = 0;
