@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:ui' show PlatformDispatcher;
+
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -17,10 +20,28 @@ Future<void> main() async {
   final wd = ArcadeWorld();
   wd.onSfx = (n) => Sfx.play(n);
   wd.onMusic = (n) => Music.play(n);
-  await wd.loadProgress();
-  Ads.init();
+  // أي خطأ يصير نعرضه بالشاشة بدل ما التطبيق يطب بصمت
+  FlutterError.onError = (d) {
+    FlutterError.presentError(d);
+    lastError.value = d.exceptionAsString();
+  };
+  PlatformDispatcher.instance.onError = (e, s) {
+    lastError.value = '$e';
+    return true;
+  };
+  try {
+    await wd.loadProgress();
+  } catch (_) {}
   runApp(ArcadeApp(wd: wd));
+  // الإعلانات تبدي بعد ما اللعبة تفتح، وإذا صار بيها خلل ما توگف اللعبة
+  Timer(const Duration(seconds: 3), () {
+    Ads.init().catchError((Object e) {
+      lastError.value = 'Ads: $e';
+    });
+  });
 }
+
+final ValueNotifier<String?> lastError = ValueNotifier(null);
 
 class ArcadeApp extends StatefulWidget {
   final ArcadeWorld wd;
@@ -69,6 +90,25 @@ class _ArcadeAppState extends State<ArcadeApp> with WidgetsBindingObserver {
             children: [
               GameWidget(game: game),
               ArcadeUI(wd: widget.wd),
+              // شريط صغير يبين الخطأ (للتجربة)
+              Positioned(
+                left: 8,
+                right: 8,
+                bottom: 8,
+                child: ValueListenableBuilder<String?>(
+                  valueListenable: lastError,
+                  builder: (_, e, __) => e == null
+                      ? const SizedBox.shrink()
+                      : GestureDetector(
+                          onTap: () => lastError.value = null,
+                          child: Container(
+                            padding: const EdgeInsets.all(8),
+                            color: const Color(0xDDB71C1C),
+                            child: Text('⚠️ $e', maxLines: 4, style: const TextStyle(fontSize: 11, color: Colors.white)),
+                          ),
+                        ),
+                ),
+              ),
             ],
           ),
         ),
